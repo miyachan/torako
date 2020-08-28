@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["miyachan <wakarimasenco@gmail.com>"]
 edition = "2018"
 repository = "https://github.com/miyachan/torako"
+publish = false
 
 [features]
 default = ["jemalloc"]
