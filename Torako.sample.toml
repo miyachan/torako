@@ -1,0 +1,142 @@
+## HTTP API Server Address for Torako. If this is omitted or 0,
+## the API server will be disabled.
+api_addr = "127.0.0.1:2377"
+
+## Global Imageboard API Rate Limit in Request/Second/
+## this rate limit only affects downloading the JSON threads/posts
+## and will ensure api requests are throttled appropirately.
+## If this option is not specified, there will be no rate limiting
+#rate_limit = 10
+
+## Global HTTP Timeout. Any request that takes longer than this
+## is cancelled. Note that if Torako has very slow internet for some reason
+## this timeout will cancel any download that takes longer than 30 minutes.
+## A large timeout is useful for cleaning up connections that may have stalled
+## indefinitely.
+## Leaving this unset will disable the timeout.
+request_timeout = "30m"
+
+[boards]
+## Enable TLS for API calls (Default: true)
+#tls = true
+
+## Imageboard API hostname (Default: "a.4cdn.org")
+#host = "a.4cdn.org"
+
+## Default refresh rate for boards (Default: 10s)
+#refresh_rate = "10s"
+
+## Default deleted page threshold. If threads
+## are removed before this threshold is reached
+## then the thread is marked as (moderator) deleted
+## (Default: 8)
+#deleted_page_threshold = 8
+
+## Download thumbnails (Default: true)
+#download_thumbs = true
+
+## Download media/images (Default: true)
+#download_media = true
+
+## List the boards that should be archived
+[boards.po]
+## Any of the above options can be provided
+## here for board specific options
+[boards.vip]
+
+[backend]
+[backend.asagi]
+## Download thumbnails. Disabling this will prevent the
+## asagi storage backend from downloading thumbnails (Default: true)
+#thumbs = true
+
+## Download media. Disabling this will prevent the
+## asagi storage backend from downloading media (Default: true)
+#media = true
+
+## Media content host URL. (Default: "https://i.4cdn.org/")
+# media_url = "https://i.4cdn.org/"
+
+## Thumb content host URL (Default: "https://i.4cdn.org/")
+# thumb_url = "https://i.4cdn.org/"
+
+## Media Path. This is where downloaded content is stored. If this is not
+## provided then media downloading will be disabled.
+media_path = "/var/lib/torako"
+
+# TMP dir. (Default: System Temp Path + /torako)
+#tmp_dir = "/tmp/torako"
+
+## Old Directory Structure. This is a legacy option in Asagi. (Default: false)
+#old_dir_structure = false
+
+## Web UNIX Group. On Unix system, if this is set, all downloads and download
+## folders will have their group ownership set to this. (Default: None)
+#web_unix_group = "www-data"
+
+## If we fail to save a thread or post to MySQL for whatever
+## reason, we should consider this as a fatal error and
+## stop Torako. The operator (or system) should restart Torako.
+## Due to Torako's design is we fail to save a post/thread, then
+## that thread could be lost if this is set to false.
+#persist_error_is_fatal = true
+
+## Inflight Posts. This number denotes how many posts can be buffered in memory
+## at a time before Asagi rejects accepting more posts. This acts as a form
+## of backpressure and can be used to optimize memory usage or database activity
+## Note that this is an *advisory* limit, and can be temporarily exceeded.
+## (Ex. if the limit is 10, and we receieve a thread with 11 posts, we will
+## buffer all 11 posts in memory, but no more posts will be archived until the
+## 11 posts are persisted to the database)
+## Default: unlimited
+#inflight_posts = 65536
+
+## Concurrent Downloads. This number controls the amount of simultaneous media
+## downloads that can happen at once. For the Asagi storage backend a single
+## download might be both the thumbnail and media, so a concurrent_downloads
+## value of "1", might start 2 downloads (one for the thumb and the media).
+## Unlike `inflight_posts`, this value is not advisory and the number of
+## concurrent downloads will ont exceed this number.
+## Tune this number according to your memory and bandwidth preferences
+## (Default: 128)
+#concurrent_downloads = 128
+
+## Setting this to true means that the media download queue will backpressure
+## the system, and once all concurrent_download slots are full, no more new
+## posts will be scraped until there is capacity to download more images.
+## Turning this on will decrease memory pressure at the cost of pausing
+## archiving if the download queue is full. The download queue can "fill up"
+## for example when starting an archive of a fresh board and all the images
+## must be downloaded.
+#media_backpressure = false
+
+[backend.asagi.database]
+## Database URL. Usually in the format of
+## mysql://username:password@host/db_name.
+## Only MySQL is supported today.
+url = "mysql://torako@localhost/torako"
+
+## Database Charset (Default: "utf8mb4")
+charset = "utf8mb4"
+
+## In Asagi's original design, 2nd-level tables such as board_threads and other
+## stats were handled via MySQL triggers. This may be problematic for high load
+## databases. If `use_triggers` is set to false, the updates to child tables
+## will be computed by Torako and flushed to MySQL in a single transaction.
+## WARNING: If you set `use_triggers` to false, Torako WILL DROP YOUR insert &
+## update triggers. Running Torako again with `use_triggers` as true will
+## recreate those triggers.
+## (Default: true)
+use_triggers = true
+
+## Compute stats in the board_daily and board_users table. For Torako to handle
+## this, you must set `use_triggers` to false as these stats are computed
+## by Torako and flushed to MySQL.
+## (Default: false)
+compute_stats = false
+
+## The orginal Asagi column definitions for the `email`, `name`, and `title`,
+## fields are are limited to 100 characters. By default Torako will truncate
+## them.
+#truncate_fields = false
+
