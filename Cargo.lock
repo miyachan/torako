@@ -1196,9 +1196,9 @@ dependencies = [
 
 [[package]]
 name = "mysql_async"
-version = "0.24.0"
+version = "0.24.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aed1121ea05210db360943f829bf415bc00a483e40bcbcfc4f75e57c384078e0"
+checksum = "9bb4fbd44aa66654185a75981e3d1ddc8a5315dd1c7a6250cc7f272c686e5395"
 dependencies = [
  "bytes",
  "crossbeam",
