@@ -539,7 +539,7 @@ impl AsagiInner {
                                 0usize.into(),                // subnum,
                                 post.thread_no().into(),      // thread_num,
                                 post.is_op().into(),          // op,
-                                post.time.into(),             // timestamp,
+                                post.nyc_timestamp().into(),  // timestamp,
                                 deleted_at,                   // timestamp_expired
                                 post.preview_orig().into(),   // preview_orig,
                                 post.tn_w.into(),             // preview_w
