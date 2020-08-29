@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 use std::sync::{atomic::Ordering, Arc};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use clap::crate_version;
 use futures::prelude::*;
@@ -49,6 +49,8 @@ struct Info {
     name: String,
     #[serde(with = "humantime_serde")]
     uptime: Duration,
+    #[serde(with = "humantime_serde")]
+    started_at: Option<SystemTime>,
     version: String,
     boards: FxHashMap<String, BoardMetrics>,
     all_boards: BoardMetrics,
@@ -82,6 +84,7 @@ fn with_storage(
 
 fn info(
     start_time: Instant,
+    system_start: SystemTime,
     board: Arc<Vec<Arc<crate::imageboard::Metrics>>>,
     storage: Arc<Vec<Box<dyn crate::storage::MetricsProvider>>>,
 ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
@@ -95,6 +98,7 @@ fn info(
                 let info = Info {
                     name: "torako".into(),
                     uptime: start_time.elapsed(),
+                    started_at: Some(system_start),
                     version: crate_version!().into(),
                     boards: board
                         .iter()
@@ -147,6 +151,7 @@ pub fn serve(
 ) -> impl Future<Output = ()> {
     let routes = info(
         Instant::now(),
+        SystemTime::now(),
         Arc::new(board_metrics),
         Arc::new(storage_metrics),
     );
