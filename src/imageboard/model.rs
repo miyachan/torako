@@ -294,7 +294,11 @@ impl Post {
                 ret
             }
             Err(err) => {
-                log::warn!("error: {:?}", err);
+                log::warn!(
+                    "error decoding html entities (will do regex escaping): '{:?}':\n'''\n{}\n'''",
+                    err,
+                    text.as_ref()
+                );
                 let mut ret = text.as_ref().to_owned();
                 for (patt, repl) in RE_PIPELINE.iter() {
                     match patt.replace_all(&ret, *repl) {
