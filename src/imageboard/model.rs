@@ -168,8 +168,12 @@ impl Post {
         ny_time.naive_local().timestamp()
     }
 
-    pub fn datetime(&self) -> chrono::NaiveDateTime {
-        NaiveDateTime::from_timestamp(self.time as i64, 0)
+    pub fn datetime(&self) -> Option<chrono::NaiveDateTime> {
+        // deleted posts will have a time of 0
+        match self.time {
+            0 => None,
+            _ => Some(NaiveDateTime::from_timestamp(self.time as i64, 0)),
+        }
     }
 
     pub fn preview_orig(&self) -> Option<String> {
@@ -373,7 +377,12 @@ impl Post {
             is_retransmission: true,
             deleted: true,
             deleted_at: match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
-                Ok(n) => Some(n.as_secs()),
+                Ok(n) => {
+                    let ny_time = chrono::Utc
+                        .timestamp(n.as_secs() as i64, 0)
+                        .with_timezone(&New_York);
+                    Some(ny_time.naive_local().timestamp() as u64)
+                }
                 Err(_) => panic!("SystemTime before UNIX EPOCH!"),
             },
             ..Default::default()

@@ -563,7 +563,7 @@ impl AsagiInner {
                                 exif,                         // exif
                                 post.datetime().into(),       // unix_timestamp
                             ]);
-                            match with_unix_timestamp {
+                            match with_unix_timestamp && post.datetime().is_some() {
                                 true => values.into_vec(),
                                 false => {
                                     let mut v = values.into_vec();
