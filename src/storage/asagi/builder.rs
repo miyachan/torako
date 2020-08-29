@@ -153,7 +153,7 @@ impl AsagiBuilder {
     }
 
     #[cfg(target_family = "windows")]
-    pub fn media_unix_group<T: AsRef<str>>(mut self, group: T) -> Self {
+    pub fn media_unix_group<T: AsRef<OsStr>>(mut self, _group: T) -> Self {
         self.web_unix_group = None;
         self
     }
@@ -166,7 +166,7 @@ impl AsagiBuilder {
 
     #[cfg(target_family = "windows")]
     fn group(&self) -> Result<(), Error> {
-        ()
+        Ok(())
     }
 
     #[cfg(not(target_family = "windows"))]

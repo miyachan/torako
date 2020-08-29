@@ -46,6 +46,7 @@ pub enum Error {
     #[error("triggers must be disabled to generate stats within Torako")]
     InvalidStatsNoTriggers,
     #[error("A unix user group was set however the group could not be found.")]
+    #[cfg(not(target_family = "windows"))]
     InvalidUserGroup,
     #[error("Asagi was told to use the old directory structure which doesn't support low thread numbers.")]
     InvalidThreadOldDir,
@@ -230,6 +231,7 @@ struct AsagiInner {
     metrics: Arc<AsagiMetrics>,
 
     #[cfg(target_family = "windows")]
+    #[allow(dead_code)]
     media_group: (),
 
     #[cfg(not(target_family = "windows"))]
@@ -855,6 +857,11 @@ impl AsagiInner {
             let has_parent = parent.exists();
             if let Err(err) = tokio::fs::create_dir_all(&subdir).await {
                 return Err(Error::from(err));
+            }
+            #[cfg(target_family = "windows")]
+            {
+                // get rid of warning on windows build
+                let _has_parent = has_parent;
             }
             #[cfg(not(target_family = "windows"))]
             if let Some(group) = &self.media_group {
