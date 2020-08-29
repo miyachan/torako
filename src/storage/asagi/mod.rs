@@ -936,6 +936,146 @@ impl AsagiInner {
             .await?)
     }
 
+    async fn download_media(
+        &self,
+        kind: MediaKind,
+        media: &thread::Media,
+        meta: &MediaDescriptor,
+    ) -> Result<(), Error> {
+        let (media_name, filename, url) = match kind {
+            MediaKind::Thumb => {
+                let filename = match self.old_dir_structure {
+                    true => meta.preview.as_ref(),
+                    false => match meta.is_op {
+                        true => media.preview_op.as_ref(),
+                        false => media.preview_reply.as_ref(),
+                    },
+                };
+                if filename.is_none() {
+                    warn!("Attempted to download thumbnail, but the thumbnail colums were empty for board/thread: {}/{}", meta.board, meta.thread_no);
+                    return Ok(());
+                }
+                let image_name = filename.unwrap();
+                let filename = match self
+                    .download_path(
+                        meta.board.as_ref(),
+                        MediaKind::Thumb,
+                        image_name,
+                        meta.thread_no,
+                    )
+                    .await
+                {
+                    Ok(f) => f,
+                    Err(err) => return Err(err),
+                };
+
+                let mut thumb_url = self.thumb_url.clone();
+                thumb_url.set_path(&format!("/{}/{}", meta.board, image_name));
+                (image_name, filename, thumb_url)
+            }
+            MediaKind::Image => {
+                if media.media.is_none() {
+                    warn!("Attempted to download media, but the media column was empty for board/thread: {}/{}", meta.board, meta.thread_no);
+                    return Ok(());
+                }
+                let media_orig = media.media.as_ref().unwrap();
+                let filename = match self
+                    .download_path(
+                        meta.board.as_ref(),
+                        MediaKind::Image,
+                        media_orig,
+                        meta.thread_no,
+                    )
+                    .await
+                {
+                    Ok(f) => f,
+                    Err(err) => return Err(err),
+                };
+                let mut media_url = self.media_url.clone();
+                media_url.set_path(&format!("/{}/{}", meta.board, &media_orig,));
+
+                (media_orig, filename, media_url)
+            }
+        };
+
+        if !filename.exists() {
+            let tempname = self.tmp_dir.join(
+                rand::thread_rng()
+                    .sample_iter(&Alphanumeric)
+                    .take(16)
+                    .collect::<String>(),
+            );
+
+            let file = tokio::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(&tempname)
+                .await?;
+
+            match kind {
+                MediaKind::Thumb => debug!("Downloading media {:?}", url),
+                MediaKind::Image => debug!("Downloading thumb {:?}", url),
+            };
+            let dl_start = Instant::now();
+            let (mut file, downloaded) = self
+                .client
+                .get(url)
+                .send()
+                .and_then(|resp| async { resp.error_for_status() })
+                .await?
+                .bytes_stream()
+                .map_err(move |err| match err.status() {
+                    Some(reqwest::StatusCode::SERVICE_UNAVAILABLE) => Error::CloudFlareBlocked(err),
+                    Some(reqwest::StatusCode::TOO_MANY_REQUESTS) => Error::CloudFlareBlocked(err),
+                    Some(reqwest::StatusCode::FORBIDDEN) => Error::CloudFlareBlocked(err),
+                    _ => Error::from(err),
+                })
+                .try_fold((file, 0), |(mut f, bytes), buf| async move {
+                    match f.write_all(&buf).await {
+                        Ok(_) => Ok((f, bytes + buf.len())),
+                        Err(e) => Err(Error::from(e)),
+                    }
+                })
+                .await?;
+
+            file.flush().await?;
+            drop(file);
+            tokio::fs::rename(&tempname, &filename).await?;
+            info!(
+                "Downloaded {} {}/{}. {} bytes. Took {}ms",
+                meta.board,
+                match kind {
+                    MediaKind::Thumb => "thumbnail",
+                    MediaKind::Image => "media",
+                },
+                media_name,
+                downloaded,
+                dl_start.elapsed().as_millis()
+            );
+
+            self.metrics.incr_bytes(downloaded as u64);
+
+            match kind {
+                MediaKind::Thumb => self.metrics.incr_thumbs(1),
+                MediaKind::Image => self.metrics.incr_media(1),
+            };
+
+            #[cfg(not(target_family = "windows"))]
+            if let Some(group) = &self.media_group {
+                tokio::fs::set_permissions(&filename, std::fs::Permissions::from_mode(0o644))
+                    .await?;
+                let _ = nix::unistd::chown(
+                    &filename,
+                    None,
+                    Some(nix::unistd::Gid::from_raw(group.gid())),
+                );
+            }
+        }
+
+        Ok(())
+    }
+
     async fn save_media(&self, media: &thread::Media, meta: &MediaDescriptor) -> Result<(), Error> {
         if self.media_path.is_none() {
             return Ok(());
@@ -956,203 +1096,26 @@ impl AsagiInner {
             .get(meta.board.as_ref())
             .map(|x| (x.thumbs, x.media))
             .unwrap();
+        if !(dl_thumb || dl_media) {
+            return Ok(());
+        }
 
         let thumb_future = async {
             self.concurrent_downloads.fetch_add(1, Ordering::AcqRel);
-            let filename = match self.old_dir_structure {
-                true => meta.preview.as_ref(),
-                false => match meta.is_op {
-                    true => media.preview_op.as_ref(),
-                    false => media.preview_reply.as_ref(),
-                },
-            };
-            if filename.is_none() {
-                warn!("Attempted to download thumbnail, but the thumbnail colums were empty for board/thread: {}/{}", meta.board, meta.thread_no);
-                return Ok(());
-            }
-            let image_name = filename.unwrap();
-            let filename = match self
-                .download_path(
-                    meta.board.as_ref(),
-                    MediaKind::Thumb,
-                    image_name,
-                    meta.thread_no,
-                )
-                .await
-            {
-                Ok(f) => f,
-                Err(err) => return Err(err),
-            };
-            if !filename.exists() {
-                let tempname = self.tmp_dir.join(
-                    rand::thread_rng()
-                        .sample_iter(&Alphanumeric)
-                        .take(16)
-                        .collect::<String>(),
-                );
-                let mut thumb_url = self.thumb_url.clone();
-                thumb_url.set_path(&format!("/{}/{}", meta.board, image_name));
-                debug!("Downloading thumbnail {:?}", thumb_url);
-
-                let file = tokio::fs::OpenOptions::new()
-                    .write(true)
-                    .create(true)
-                    .truncate(true)
-                    .open(&tempname)
-                    .await?;
-
-                let dl_start = Instant::now();
-                let (mut file, downloaded) = self
-                    .client
-                    .get(thumb_url)
-                    .send()
-                    .and_then(|resp| async { resp.error_for_status() })
-                    .await?
-                    .bytes_stream()
-                    .map_err(move |err| match err.status() {
-                        Some(reqwest::StatusCode::SERVICE_UNAVAILABLE) => {
-                            Error::CloudFlareBlocked(err)
-                        }
-                        Some(reqwest::StatusCode::TOO_MANY_REQUESTS) => {
-                            Error::CloudFlareBlocked(err)
-                        }
-                        Some(reqwest::StatusCode::FORBIDDEN) => Error::CloudFlareBlocked(err),
-                        _ => Error::from(err),
-                    })
-                    .try_fold((file, 0), |(mut f, bytes), buf| async move {
-                        match f.write_all(&buf).await {
-                            Ok(_) => Ok((f, bytes + buf.len())),
-                            Err(e) => Err(Error::from(e)),
-                        }
-                    })
-                    .await?;
-
-                file.flush().await?;
-                drop(file);
-                tokio::fs::rename(&tempname, &filename).await?;
-                info!(
-                    "Downloaded thumbnail {}/{}. {} bytes. Took {}ms",
-                    meta.board,
-                    image_name,
-                    downloaded,
-                    dl_start.elapsed().as_millis()
-                );
-                self.metrics.incr_thumbs(1);
-                self.metrics.incr_bytes(downloaded as u64);
-
-                #[cfg(not(target_family = "windows"))]
-                if let Some(group) = &self.media_group {
-                    tokio::fs::set_permissions(&filename, std::fs::Permissions::from_mode(0o644))
-                        .await?;
-                    let _ = nix::unistd::chown(
-                        &filename,
-                        None,
-                        Some(nix::unistd::Gid::from_raw(group.gid())),
-                    );
-                }
-            }
-            Ok::<(), Error>(())
+            self.download_media(MediaKind::Thumb, media, meta).await
         };
-        let thumb_future = thumb_future.inspect(|_| {
-            self.notify_download(1);
-        });
+        let thumb_future = thumb_future.inspect(|_| self.notify_download(1));
 
         let media_future = async {
-            if media.media.is_none() {
-                warn!("Attempted to download media, but the media column was empty for board/thread: {}/{}", meta.board, meta.thread_no);
-                return Ok(());
-            }
-            let media_orig = media.media.as_ref().unwrap();
             self.concurrent_downloads.fetch_add(1, Ordering::AcqRel);
-            let filename = match self
-                .download_path(
-                    meta.board.as_ref(),
-                    MediaKind::Image,
-                    media_orig,
-                    meta.thread_no,
-                )
-                .await
-            {
-                Ok(f) => f,
-                Err(err) => return Err(err),
-            };
-            if !filename.exists() {
-                let tempname = self.tmp_dir.join(
-                    rand::thread_rng()
-                        .sample_iter(&Alphanumeric)
-                        .take(16)
-                        .collect::<String>(),
-                );
-                let mut media_url = self.media_url.clone();
-                media_url.set_path(&format!("/{}/{}", meta.board, &media_orig,));
-                debug!("Downloading media {:?}", media_url);
-
-                let file = tokio::fs::OpenOptions::new()
-                    .write(true)
-                    .create(true)
-                    .truncate(true)
-                    .open(&tempname)
-                    .await?;
-
-                let dl_start = Instant::now();
-                let (mut file, downloaded) = self
-                    .client
-                    .get(media_url)
-                    .send()
-                    .and_then(|resp| async { resp.error_for_status() })
-                    .await?
-                    .bytes_stream()
-                    .map_err(move |err| match err.status() {
-                        Some(reqwest::StatusCode::SERVICE_UNAVAILABLE) => {
-                            Error::CloudFlareBlocked(err)
-                        }
-                        Some(reqwest::StatusCode::TOO_MANY_REQUESTS) => {
-                            Error::CloudFlareBlocked(err)
-                        }
-                        Some(reqwest::StatusCode::FORBIDDEN) => Error::CloudFlareBlocked(err),
-                        _ => Error::from(err),
-                    })
-                    .try_fold((file, 0), |(mut f, bytes), buf| async move {
-                        match f.write_all(&buf).await {
-                            Ok(_) => Ok((f, bytes + buf.len())),
-                            Err(e) => Err(Error::from(e)),
-                        }
-                    })
-                    .await?;
-
-                file.flush().await?;
-                drop(file);
-                tokio::fs::rename(&tempname, &filename).await?;
-                info!(
-                    "Downloaded media {}/{}. {} bytes. Took {}ms",
-                    meta.board,
-                    &media_orig,
-                    downloaded,
-                    dl_start.elapsed().as_millis()
-                );
-                self.metrics.incr_media(1);
-                self.metrics.incr_bytes(downloaded as u64);
-                #[cfg(not(target_family = "windows"))]
-                if let Some(group) = &self.media_group {
-                    tokio::fs::set_permissions(&filename, std::fs::Permissions::from_mode(0o644))
-                        .await?;
-                    let _ = nix::unistd::chown(
-                        &filename,
-                        None,
-                        Some(nix::unistd::Gid::from_raw(group.gid())),
-                    );
-                }
-            }
-            Ok::<(), Error>(())
+            self.download_media(MediaKind::Image, media, meta).await
         };
-        let media_future = media_future.inspect(|_| {
-            self.notify_download(1);
-        });
+        let media_future = media_future.inspect(|_| self.notify_download(1));
 
         match (dl_media, dl_thumb) {
             (true, true) => {
                 futures::future::join(thumb_future, media_future)
-                    .map(|(a, b)| a.or(b))
+                    .map(|(a, b)| a.and(b))
                     .await
             }
             (true, _) => media_future.await,
