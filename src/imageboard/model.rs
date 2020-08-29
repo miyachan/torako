@@ -265,17 +265,43 @@ impl Post {
     }
 
     pub fn clean_simple<T: AsRef<str>>(text: T) -> String {
+        lazy_static! {
+            static ref RE_PIPELINE: [(Regex, &'static str); 6] = [
+                (Regex::new("&gt;").unwrap(), ">"),
+                (Regex::new("&lt;").unwrap(), "<"),
+                (Regex::new("&quot;").unwrap(), "\""),
+                (Regex::new("&amp;").unwrap(), "&"),
+                (Regex::new("\\s*$").unwrap(), ""),
+                (Regex::new("^\\s*$").unwrap(), ""),
+            ];
+        }
         match htmlescape::decode_html(text.as_ref()) {
-            Ok(text) => text.replace("\\s*$", "").replace("^\\s*$", ""),
+            Ok(text) => {
+                let mut ret = text;
+                for (patt, repl) in RE_PIPELINE[4..].iter() {
+                    match patt.replace_all(&ret, *repl) {
+                        std::borrow::Cow::Owned(s) => {
+                            ret.clear();
+                            ret.push_str(s.as_ref());
+                        }
+                        std::borrow::Cow::Borrowed(_) => (),
+                    };
+                }
+                ret
+            }
             Err(err) => {
                 log::warn!("error: {:?}", err);
-                text.as_ref()
-                    .replace("&gt;", ">")
-                    .replace("&lt;", "<")
-                    .replace("&quot;", "\"")
-                    .replace("&amp;", "&")
-                    .replace("\\s*$", "")
-                    .replace("^\\s*$", "")
+                let mut ret = text.as_ref().to_owned();
+                for (patt, repl) in RE_PIPELINE.iter() {
+                    match patt.replace_all(&ret, *repl) {
+                        std::borrow::Cow::Owned(s) => {
+                            ret.clear();
+                            ret.push_str(s.as_ref());
+                        }
+                        std::borrow::Cow::Borrowed(_) => (),
+                    };
+                }
+                ret
             }
         }
     }
@@ -337,7 +363,7 @@ impl Post {
             };
         }
 
-        ret
+        Self::clean_simple(ret)
     }
 
     pub fn deleted<T: AsRef<str>>(board: T, no: u64) -> Self {
