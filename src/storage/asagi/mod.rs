@@ -530,6 +530,10 @@ impl AsagiInner {
                             let exif = mysql_async::Value::from(post.exif());
                             let comment = mysql_async::Value::from(post.comment());
                             let deleted_at = mysql_async::Value::from(post.deleted_at.unwrap_or(0));
+                            let unix_timestamp = match post.datetime() {
+                                Some(d) => d,
+                                None => chrono::NaiveDateTime::from_timestamp(1, 0),
+                            };
                             let values: Box<[mysql_async::Value]> = Box::new([
                                 post.no.into(),               // num
                                 0usize.into(),                // subnum,
@@ -561,9 +565,9 @@ impl AsagiInner {
                                 poster_hash,                  // poster_hash,
                                 poster_country,               // poster_country,
                                 exif,                         // exif
-                                post.datetime().into(),       // unix_timestamp
+                                unix_timestamp.into(),        // unix_timestamp
                             ]);
-                            match with_unix_timestamp && post.datetime().is_some() {
+                            match with_unix_timestamp {
                                 true => values.into_vec(),
                                 false => {
                                     let mut v = values.into_vec();
