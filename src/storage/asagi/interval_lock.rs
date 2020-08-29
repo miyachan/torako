@@ -81,9 +81,8 @@ impl Future for AcquireRange {
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<IntervalLockGuard> {
         match self.parent.try_acquire(self.range) {
             Some(g) => {
-                let waker_ptr = Arc::as_ptr(&self.waker);
                 let mut wakers = self.parent.wakers.lock();
-                if let Some(pos) = wakers.iter().position(|x| Arc::as_ptr(x) == waker_ptr) {
+                if let Some(pos) = wakers.iter().position(|x| Arc::ptr_eq(&x, &self.waker)) {
                     wakers.remove(pos);
                 }
                 Poll::Ready(g)
