@@ -9,13 +9,25 @@ use rustc_hash::FxHashMap;
 use serde::Serialize;
 use warp::{http::StatusCode, Filter};
 
-#[derive(Serialize, Default)]
+#[derive(Serialize)]
 struct BoardMetrics {
     posts: u64,
     deleted: u64,
     warmed_up: bool,
     last_modified: i64,
     cloudflare_blocked: u64,
+}
+
+impl Default for BoardMetrics {
+    fn default() -> Self {
+        Self {
+            posts: 0,
+            deleted: 0,
+            warmed_up: true,
+            last_modified: 0,
+            cloudflare_blocked: 0,
+        }
+    }
 }
 
 impl std::ops::Add for BoardMetrics {
