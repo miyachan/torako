@@ -16,6 +16,15 @@ api_addr = "127.0.0.1:2377"
 ## Leaving this unset will disable the timeout.
 request_timeout = "30m"
 
+## Proxies. Provide a list of proxies that Torako should use for
+## http requests. (Default: None)
+#request_proxy = ["http://foo.prox:29292", "https://sfoo.prox:444", "socks5://sock.prox:4444"]
+
+## Only use proxies. By default Torako will round robin through the available
+## proxies provided *and* not using a proxy at all. Enable this to ensure
+## that every request goes through a proxy.
+#request_only_proxy = false
+
 [boards]
 ## Enable TLS for API calls (Default: true)
 #tls = true
