@@ -161,11 +161,11 @@ impl Post {
         }
     }
 
-    pub fn nyc_timestamp(&self) -> i64 {
+    pub fn nyc_timestamp(&self) -> u64 {
         let ny_time = chrono::Utc
             .timestamp(self.time as i64, 0)
             .with_timezone(&New_York);
-        ny_time.naive_local().timestamp()
+        ny_time.naive_local().timestamp().max(0) as u64
     }
 
     pub fn datetime(&self) -> Option<chrono::NaiveDateTime> {

@@ -57,7 +57,7 @@ impl Daily {
 pub(super) struct User {
     pub(super) name: String,
     pub(super) trip: String,
-    pub(super) first_seen: i64,
+    pub(super) first_seen: u64,
     pub(super) post_count: i64,
 }
 
