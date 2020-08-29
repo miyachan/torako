@@ -1,7 +1,7 @@
 use std::collections::hash_map::Entry;
 use std::pin::Pin;
 use std::sync::{
-    atomic::{AtomicI64, AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering},
     Arc,
 };
 use std::task::{Context, Poll};
@@ -25,13 +25,38 @@ pub enum Error {
     NotModified(Option<String>),
     #[error("request error: {}", .0)]
     Request(#[from] reqwest::Error),
+    #[error("The request was blocked by Cloudflare's bot detection")]
+    CloudFlareBlocked(reqwest::Error),
+}
+
+impl Error {
+    fn is_status(&self) -> bool {
+        match self {
+            Error::Request(req) => req.is_status(),
+            _ => false,
+        }
+    }
+
+    fn status(&self) -> Option<reqwest::StatusCode> {
+        match self {
+            Error::Request(req) => req.status(),
+            _ => None,
+        }
+    }
+
+    fn is_cloudflare(&self) -> bool {
+        match self {
+            Error::CloudFlareBlocked(_) => true,
+            _ => false,
+        }
+    }
 }
 
 enum State {
     Sleeping(Option<String>),
     Query(Pin<Box<dyn Future<Output = Result<(Vec<CatalogPage>, Option<String>), Error>> + Send>>),
     Archive(
-        Pin<Box<dyn Stream<Item = Result<Vec<Post>, ((u64, usize), reqwest::Error)>> + Send>>,
+        Pin<Box<dyn Stream<Item = Result<Vec<Post>, ((u64, usize), Error)>> + Send>>,
         Option<String>,
     ),
 }
@@ -126,9 +151,11 @@ impl From<&Post> for WatchedPost {
 #[derive(Debug, Default)]
 pub struct Metrics {
     pub board: String,
+    pub warmed_up: AtomicBool,
     pub posts: AtomicU64,
     pub deleted: AtomicU64,
     pub last_modified: AtomicI64,
+    pub cloudflare_blocked: AtomicU64,
 }
 
 impl Metrics {
@@ -138,6 +165,10 @@ impl Metrics {
 
     pub fn incr_deleted(&self, count: u64) {
         self.deleted.fetch_add(count, Ordering::Relaxed);
+    }
+
+    pub fn incr_cf_blocked(&self, count: u64) {
+        self.cloudflare_blocked.fetch_add(count, Ordering::Relaxed);
     }
 
     pub fn set_last_modified(&self, unix_timestamp: i64) {
@@ -251,7 +282,7 @@ impl Stream for BoardStream {
                         let t = self.delay.deadline();
                         let mut board_url = self.board_url.clone();
                         board_url.set_query(Some(&format!("_={}", t.elapsed().as_nanos())));
-                        let req = self.client.get(board_url.clone());
+                        let req = self.client.get(board_url.as_str());
                         let req = match self.last_modified() {
                             Some(modified) => req.header(
                                 reqwest::header::IF_MODIFIED_SINCE,
@@ -264,7 +295,18 @@ impl Stream for BoardStream {
                             .get_api_token()
                             .then(move |_| {
                                 info!("Loading catalog URL: {}", board_url);
-                                req.map_err(Error::from)
+                                req.map_err(move |err| match err.status() {
+                                    Some(reqwest::StatusCode::SERVICE_UNAVAILABLE) => {
+                                        Error::CloudFlareBlocked(err)
+                                    }
+                                    Some(reqwest::StatusCode::TOO_MANY_REQUESTS) => {
+                                        Error::CloudFlareBlocked(err)
+                                    }
+                                    Some(reqwest::StatusCode::FORBIDDEN) => {
+                                        Error::CloudFlareBlocked(err)
+                                    }
+                                    _ => Error::from(err),
+                                })
                             })
                             .and_then(|resp| async { resp.error_for_status().map_err(Error::from) })
                             .and_then(|resp| {
@@ -361,9 +403,8 @@ impl Stream for BoardStream {
                                                     .take(10)
                                                     .collect::<String>()
                                             )));
-                                            let req = self.client.get(thread_url.clone()).send();
-                                            let board =
-                                                smallstr::SmallString::from(self.board.as_str());
+                                            let req = self.client.get(thread_url.as_str()).send();
+                                            let board = self.board.clone();
                                             self.get_api_token()
                                                 .then(move |_| {
                                                     debug!("Loading thread URL: {}", thread_url);
@@ -372,10 +413,23 @@ impl Stream for BoardStream {
                                                 .and_then(|resp| async { resp.error_for_status() })
                                                 .and_then(|resp| resp.json::<Thread>())
                                                 .map_ok(move |mut t| {
+                                                    t.posts.iter_mut().for_each(|x| {
+                                                        x.board.clear();
+                                                        x.board.push_str(board.as_str());
+                                                    });
                                                     t.posts
-                                                        .iter_mut()
-                                                        .for_each(|x| x.board = board.clone());
-                                                    t.posts
+                                                })
+                                                .map_err(move |err| match err.status() {
+                                                    Some(
+                                                        reqwest::StatusCode::SERVICE_UNAVAILABLE,
+                                                    ) => Error::CloudFlareBlocked(err),
+                                                    Some(
+                                                        reqwest::StatusCode::TOO_MANY_REQUESTS,
+                                                    ) => Error::CloudFlareBlocked(err),
+                                                    Some(reqwest::StatusCode::FORBIDDEN) => {
+                                                        Error::CloudFlareBlocked(err)
+                                                    }
+                                                    _ => Error::from(err),
                                                 })
                                                 .map_err(move |err| ((thread_no, page_no), err))
                                         });
@@ -394,6 +448,9 @@ impl Stream for BoardStream {
                                     continue;
                                 }
                                 Err(err) => {
+                                    if err.is_cloudflare() {
+                                        self.metrics.incr_cf_blocked(1);
+                                    }
                                     error!(
                                         "Failed to load catalog for board {} on host {}: {}",
                                         self.board, self.host, err
@@ -496,6 +553,8 @@ impl Stream for BoardStream {
                                     }
                                     continue;
                                 }
+                            } else if err.is_cloudflare() {
+                                self.metrics.incr_cf_blocked(1);
                             }
                             error!(
                                 "Failed to load thread {} on board {} on host {}: {}",
@@ -520,6 +579,7 @@ impl Stream for BoardStream {
                         let next = last_run + self.refresh_rate;
                         self.delay.reset(next);
                         self.state = State::Sleeping(last_modified);
+                        self.metrics.warmed_up.store(true, Ordering::Relaxed);
                         continue;
                     }
                     Poll::Pending => return Poll::Pending,

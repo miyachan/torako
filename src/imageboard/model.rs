@@ -161,18 +161,15 @@ impl Post {
         }
     }
 
-    #[allow(dead_code)]
     pub fn nyc_timestamp(&self) -> i64 {
-        let dt = NaiveDateTime::from_timestamp(self.time as i64, 0);
-        return New_York
-            .from_local_datetime(&dt)
-            .earliest()
-            .unwrap()
-            .timestamp();
+        let ny_time = chrono::Utc
+            .timestamp(self.time as i64, 0)
+            .with_timezone(&New_York);
+        ny_time.naive_local().timestamp()
     }
 
-    pub fn unix_timestamp(&self) -> i64 {
-        self.time as i64
+    pub fn datetime(&self) -> chrono::NaiveDateTime {
+        NaiveDateTime::from_timestamp(self.time as i64, 0)
     }
 
     pub fn preview_orig(&self) -> Option<String> {
@@ -331,9 +328,13 @@ impl Post {
 
         let mut ret = String::from(text.as_ref());
         for (patt, repl) in RE_PIPELINE.iter() {
-            if patt.is_match(&ret) {
-                ret = patt.replace_all(&ret, *repl).to_string();
-            }
+            match patt.replace_all(&ret, *repl) {
+                std::borrow::Cow::Owned(s) => {
+                    ret.clear();
+                    ret.push_str(s.as_ref());
+                }
+                std::borrow::Cow::Borrowed(_) => (),
+            };
         }
 
         ret

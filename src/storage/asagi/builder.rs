@@ -177,7 +177,7 @@ impl AsagiBuilder {
             .transpose()
     }
 
-    pub async fn build(self) -> Result<Asagi, Error> {
+    pub async fn build(mut self) -> Result<Asagi, Error> {
         if self.boards.len() == 0 {
             return Err(Error::NoBoards);
         }
@@ -239,6 +239,20 @@ impl AsagiBuilder {
                 conn.query_drop(q).await?;
             }
         }
+        let database_name = conn.opts().db_name().unwrap().to_owned();
+        for (board, opts) in (&mut self).boards.iter_mut() {
+            let col: Option<String> = conn.exec_first("SELECT `COLUMN_NAME` FROM `INFORMATION_SCHEMA`.`COLUMNS` WHERE `TABLE_SCHEMA`= :table_schema AND `TABLE_NAME`= :table_name AND `COLUMN_NAME` = :column_name",
+                params! {
+                    "table_schema" => database_name.clone(),
+                    "table_name" => board,
+                    "column_name" => "unix_timestamp",
+                }
+            ).await?;
+            if col.is_some() {
+                opts.with_unix_timestamp = true
+            }
+        }
+
         drop(conn);
 
         let tmp_dir = match self.tmp_dir.clone() {
@@ -292,8 +306,8 @@ impl AsagiBuilder {
     }
 }
 
-impl From<crate::config::Asagi> for AsagiBuilder {
-    fn from(config: crate::config::Asagi) -> Self {
+impl From<&crate::config::Asagi> for AsagiBuilder {
+    fn from(config: &crate::config::Asagi) -> Self {
         let mut builder = AsagiBuilder::default();
         builder = builder.with_mysql_database(config.database.url.to_string());
         if let Some(charset) = &config.database.charset {

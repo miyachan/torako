@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS `%%BOARD%%` (
   `poster_hash` varchar(8),
   `poster_country` varchar(2),
   `exif` text,
+  `unix_timestamp` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
   PRIMARY KEY (`doc_id`),
   UNIQUE num_subnum_index (`num`, `subnum`),

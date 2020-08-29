@@ -51,6 +51,8 @@ pub enum Error {
     InvalidThreadOldDir,
     #[error("A fatal error occured when trying to archive posts")]
     ArchiveError,
+    #[error("The request was blocked by Cloudflare's bot detection")]
+    CloudFlareBlocked(reqwest::Error),
     #[error("mysql error: {}", .0)]
     MySQL(#[from] mysql_async::Error),
     #[error("io error: {}", .0)]
@@ -74,6 +76,14 @@ impl Error {
     fn is_request_failure(&self) -> bool {
         match self {
             Error::Http(err) => err.is_body() || err.is_request() || err.is_timeout(),
+            Error::CloudFlareBlocked(_) => true,
+            _ => false,
+        }
+    }
+
+    fn is_cloudflare(&self) -> bool {
+        match self {
+            Error::CloudFlareBlocked(_) => true,
             _ => false,
         }
     }
@@ -118,6 +128,7 @@ impl Hash for MediaDescriptor {
 struct BoardOpts {
     thumbs: bool,
     media: bool,
+    with_unix_timestamp: bool,
     interval_lock: interval_lock::IntervalLock,
 }
 
@@ -130,6 +141,7 @@ pub struct Metrics {
     pub inflight_posts: usize,
     pub concurrent_downloads: usize,
     pub inflight_media: usize,
+    pub cloudflare_blocked: u64,
 }
 
 #[derive(Default, Debug)]
@@ -138,6 +150,7 @@ struct AsagiMetrics {
     thumbs: AtomicU64,
     media: AtomicU64,
     bytes_downloaded: AtomicU64,
+    cf_blocked: AtomicU64,
 }
 
 impl AsagiMetrics {
@@ -155,6 +168,10 @@ impl AsagiMetrics {
 
     pub fn incr_bytes(&self, count: u64) {
         self.bytes_downloaded.fetch_add(count, Ordering::Relaxed);
+    }
+
+    pub fn incr_cfblocked(&self, count: u64) {
+        self.cf_blocked.fetch_add(count, Ordering::Relaxed);
     }
 }
 
@@ -178,6 +195,7 @@ impl super::MetricsProvider for AsagiMetricsProvider {
             concurrent_downloads: self.inner.max_concurrent_downloads
                 - self.inner.download_tokens.available_permits(),
             inflight_media: self.inner.inflight_media.load(Ordering::Acquire),
+            cloudflare_blocked: self.inner.metrics.cf_blocked.load(Ordering::Acquire),
         };
         Box::new(m)
     }
@@ -285,6 +303,12 @@ impl AsagiInner {
                     .acquire(post_range)
                     .await;
 
+                let with_unix_timestamp = self
+                    .boards
+                    .get(&board.to_string())
+                    .unwrap()
+                    .with_unix_timestamp;
+
                 /*
                  * In order for our stats to work we assume that every post
                  * we see is brand new OR has the `is_retransmission` flag
@@ -307,7 +331,7 @@ impl AsagiInner {
                         .iter()
                         .enumerate()
                         .filter_map(|(i, post)| {
-                            if post.unix_timestamp() < self.asagi_start_time {
+                            if post.time < (self.asagi_start_time as u64) {
                                 Some((post.no, i))
                             } else {
                                 None
@@ -354,15 +378,10 @@ impl AsagiInner {
                         .enumerate()
                         .map(|(i, post)| {
                             media_map.insert(post.md5.clone().unwrap(), i);
-                            let preview_op = if post.is_op() {
-                                post.clone().preview_orig()
+                            let (preview_op, preview_reply) = if post.is_op() {
+                                (post.preview_orig().clone(), None)
                             } else {
-                                None
-                            };
-                            let preview_reply = if !post.is_op() {
-                                post.clone().preview_orig()
-                            } else {
-                                None
+                                (None, post.preview_orig().clone())
                             };
                             let values: Box<[mysql_async::Value]> = Box::new([
                                 post.md5.clone().unwrap().into(),  // media_hash
@@ -453,7 +472,7 @@ impl AsagiInner {
                                     }
                                 };
                                 if self.with_stats {
-                                    let day = ((post.unix_timestamp() / 86400) * 86400) as u64;
+                                    let day = ((post.nyc_timestamp() / 86400) * 86400) as u64;
                                     match daily.entry(day) {
                                         Entry::Occupied(mut v) => v.get_mut().update(&post),
                                         Entry::Vacant(v) => {
@@ -510,50 +529,69 @@ impl AsagiInner {
                             let comment = mysql_async::Value::from(post.comment());
                             let deleted_at = mysql_async::Value::from(post.deleted_at.unwrap_or(0));
                             let values: Box<[mysql_async::Value]> = Box::new([
-                                post.no.into(),                        // num
-                                0usize.into(),                         // subnum,
-                                post.thread_no().into(),               // thread_num,
-                                post.is_op().into(),                   // op,
-                                (post.unix_timestamp() as u64).into(), // timestamp,
-                                deleted_at,                            // timestamp_expired
-                                post.preview_orig().into(),            // preview_orig,
-                                post.tn_w.into(),                      // preview_w
-                                post.tn_h.into(),                      // preview_h,
-                                media_id.into(),                       // media_id
-                                post.media_filename().into(),          // media_filename,
-                                post.w.into(),                         // media_w,
-                                post.h.into(),                         // media_h,
-                                post.fsize.into(),                     // media_size,
-                                post.md5.as_ref().into(),              // media_hash,
-                                media_orig,                            // media_orig,
-                                post.spoiler.into(),                   // spoiler,
-                                post.deleted.into(),                   // deleted,
-                                capcode,                               // capcode,
-                                poster_email,                          // email,
-                                poster_name,                           // name
-                                post.trip.as_ref().into(),             // trip
-                                post_title,                            // title
-                                comment,                               // comment
-                                mysql_async::Value::NULL,              // delpass,
-                                post.sticky.into(),                    // sticky
-                                post.closed.into(),                    // locked
-                                poster_hash,                           // poster_hash,
-                                poster_country,                        // poster_country,
-                                exif,                                  // exif
+                                post.no.into(),               // num
+                                0usize.into(),                // subnum,
+                                post.thread_no().into(),      // thread_num,
+                                post.is_op().into(),          // op,
+                                post.time.into(),             // timestamp,
+                                deleted_at,                   // timestamp_expired
+                                post.preview_orig().into(),   // preview_orig,
+                                post.tn_w.into(),             // preview_w
+                                post.tn_h.into(),             // preview_h,
+                                media_id.into(),              // media_id
+                                post.media_filename().into(), // media_filename,
+                                post.w.into(),                // media_w,
+                                post.h.into(),                // media_h,
+                                post.fsize.into(),            // media_size,
+                                post.md5.as_ref().into(),     // media_hash,
+                                media_orig,                   // media_orig,
+                                post.spoiler.into(),          // spoiler,
+                                post.deleted.into(),          // deleted,
+                                capcode,                      // capcode,
+                                poster_email,                 // email,
+                                poster_name,                  // name
+                                post.trip.as_ref().into(),    // trip
+                                post_title,                   // title
+                                comment,                      // comment
+                                mysql_async::Value::NULL,     // delpass,
+                                post.sticky.into(),           // sticky
+                                post.closed.into(),           // locked
+                                poster_hash,                  // poster_hash,
+                                poster_country,               // poster_country,
+                                exif,                         // exif
+                                post.datetime().into(),       // unix_timestamp
                             ]);
-                            values.into_vec()
+                            match with_unix_timestamp {
+                                true => values.into_vec(),
+                                false => {
+                                    let mut v = values.into_vec();
+                                    v.truncate(v.len() - 1);
+                                    v
+                                }
+                            }
                         })
                         .flatten()
                         .collect::<Vec<_>>();
 
-                    let board_table = format!("INSERT INTO `{}` (num, subnum, thread_num, op, timestamp, timestamp_expired, preview_orig,
-                preview_w, preview_h, media_id, media_filename, media_w, media_h, media_size,
-                media_hash, media_orig, spoiler, deleted, capcode, email, name, trip, title, comment,
-                delpass, sticky, locked, poster_hash, poster_country, exif
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", &board);
+                    let board_table = match with_unix_timestamp {
+                        true => format!("INSERT INTO `{}` (num, subnum, thread_num, op, timestamp, timestamp_expired, preview_orig,
+                                            preview_w, preview_h, media_id, media_filename, media_w, media_h, media_size,
+                                            media_hash, media_orig, spoiler, deleted, capcode, email, name, trip, title, comment,
+                                            delpass, sticky, locked, poster_hash, poster_country, exif, unix_timestamp
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", &board),
+                        false => format!("INSERT INTO `{}` (num, subnum, thread_num, op, timestamp, timestamp_expired, preview_orig,
+                                            preview_w, preview_h, media_id, media_filename, media_w, media_h, media_size,
+                                            media_hash, media_orig, spoiler, deleted, capcode, email, name, trip, title, comment,
+                                            delpass, sticky, locked, poster_hash, poster_country, exif
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", &board),
+                    };
+                    let placeholders = match with_unix_timestamp {
+                        true => ", (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        false => ", (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    };
                     let board_query = Some(board_table.as_str())
                 .into_iter()
-                .chain((0..(rows - 1)).map(|_| ", (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"))
+                .chain((0..(rows - 1)).map(|_| placeholders))
                 .chain(
                     Some(
                         " ON DUPLICATE KEY UPDATE
@@ -798,7 +836,7 @@ impl AsagiInner {
                         &thread_no[thread_no.len() - 5..thread_no.len() - 3]
                     )),
                 };
-                old_subdir.clone()
+                old_subdir
             }
             false => PathBuf::from(format!("{}/{}", &filename[0..4], &filename[4..6])),
         };
@@ -852,23 +890,23 @@ impl AsagiInner {
         if hashes.len() == 0 {
             return Ok(vec![]);
         }
-        let board = hashes.iter().next().unwrap().board.clone();
+        let board = hashes.iter().next().unwrap().board.as_str();
         let values = hashes
             .iter()
             .map(|h| mysql_async::Value::from(h.hash.as_ref()))
             .collect::<Vec<_>>();
-        let m = hashes
-            .into_iter()
-            .map(|h| (String::from(h.hash.as_ref()), h))
-            .collect::<FxHashMap<_, _>>();
         let placeholders = Some("?")
             .into_iter()
             .chain((0..values.len() - 1).map(|_| ", ?"))
             .collect::<String>();
         let stmt = format!(
             "SELECT media_hash, media, preview_op, preview_reply, banned FROM `{}_images` WHERE media_hash IN ({})",
-            board.as_ref(), placeholders
+            board, placeholders
         );
+        let m = hashes
+            .into_iter()
+            .map(|h| (String::from(h.hash.as_ref()), h))
+            .collect::<FxHashMap<_, _>>();
         let mut conn = self.db_pool.get_conn().await?;
         Ok(conn
             .exec_map(
@@ -964,7 +1002,16 @@ impl AsagiInner {
                     .and_then(|resp| async { resp.error_for_status() })
                     .await?
                     .bytes_stream()
-                    .map_err(|err| Error::from(err))
+                    .map_err(move |err| match err.status() {
+                        Some(reqwest::StatusCode::SERVICE_UNAVAILABLE) => {
+                            Error::CloudFlareBlocked(err)
+                        }
+                        Some(reqwest::StatusCode::TOO_MANY_REQUESTS) => {
+                            Error::CloudFlareBlocked(err)
+                        }
+                        Some(reqwest::StatusCode::FORBIDDEN) => Error::CloudFlareBlocked(err),
+                        _ => Error::from(err),
+                    })
                     .try_fold((file, 0), |(mut f, bytes), buf| async move {
                         match f.write_all(&buf).await {
                             Ok(_) => Ok((f, bytes + buf.len())),
@@ -1048,7 +1095,16 @@ impl AsagiInner {
                     .and_then(|resp| async { resp.error_for_status() })
                     .await?
                     .bytes_stream()
-                    .map_err(|err| Error::from(err))
+                    .map_err(move |err| match err.status() {
+                        Some(reqwest::StatusCode::SERVICE_UNAVAILABLE) => {
+                            Error::CloudFlareBlocked(err)
+                        }
+                        Some(reqwest::StatusCode::TOO_MANY_REQUESTS) => {
+                            Error::CloudFlareBlocked(err)
+                        }
+                        Some(reqwest::StatusCode::FORBIDDEN) => Error::CloudFlareBlocked(err),
+                        _ => Error::from(err),
+                    })
                     .try_fold((file, 0), |(mut f, bytes), buf| async move {
                         match f.write_all(&buf).await {
                             Ok(_) => Ok((f, bytes + buf.len())),
@@ -1089,7 +1145,7 @@ impl AsagiInner {
         match (dl_media, dl_thumb) {
             (true, true) => {
                 futures::future::join(thumb_future, media_future)
-                    .map(|(a,b)| a.or(b))
+                    .map(|(a, b)| a.or(b))
                     .await
             }
             (true, _) => media_future.await,
@@ -1116,6 +1172,9 @@ impl AsagiInner {
                 Ok(_) => return Ok(()),
                 Err(err) => {
                     if err.is_request_failure() {
+                        if err.is_cloudflare() {
+                            self.metrics.incr_cfblocked(1);
+                        }
                         if let Some(b) = backoff.next_backoff() {
                             error!("Downloading media failed, will retry later: {}", err);
                             tokio::time::delay_for(b).await;
@@ -1235,6 +1294,9 @@ impl Sink<Vec<imageboard::Post>> for Asagi {
                                     Ok(_) => futures::future::ready(()),
                                     Err((err, media, meta)) => {
                                         if err.is_request_failure() {
+                                            if err.is_cloudflare() {
+                                                inner.metrics.incr_cfblocked(1);
+                                            }
                                             let inner2 = inner.clone();
                                             tokio::spawn(async move {
                                                 inner2.retry_save_media(media, meta).await

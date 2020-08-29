@@ -73,6 +73,6 @@ impl User {
 
     pub(super) fn update(&mut self, post: &Post) {
         self.post_count += 1;
-        self.first_seen = self.first_seen.min(post.unix_timestamp());
+        self.first_seen = self.first_seen.min(post.nyc_timestamp());
     }
 }

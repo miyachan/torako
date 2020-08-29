@@ -13,7 +13,9 @@ use warp::{http::StatusCode, Filter};
 struct BoardMetrics {
     posts: u64,
     deleted: u64,
+    warmed_up: bool,
     last_modified: i64,
+    cloudflare_blocked: u64,
 }
 
 impl std::ops::Add for BoardMetrics {
@@ -23,7 +25,9 @@ impl std::ops::Add for BoardMetrics {
         Self {
             posts: self.posts + other.posts,
             deleted: self.deleted + other.deleted,
-            last_modified: 0,
+            last_modified: self.last_modified.max(other.last_modified),
+            warmed_up: self.warmed_up && other.warmed_up,
+            cloudflare_blocked: self.cloudflare_blocked + other.cloudflare_blocked,
         }
     }
 }
@@ -34,6 +38,8 @@ impl From<&crate::imageboard::Metrics> for BoardMetrics {
             posts: metrics.posts.load(Ordering::Relaxed),
             deleted: metrics.deleted.load(Ordering::Relaxed),
             last_modified: metrics.last_modified.load(Ordering::Relaxed),
+            warmed_up: metrics.warmed_up.load(Ordering::Relaxed),
+            cloudflare_blocked: metrics.cloudflare_blocked.load(Ordering::Relaxed),
         }
     }
 }

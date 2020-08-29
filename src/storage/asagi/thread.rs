@@ -33,7 +33,7 @@ impl Thread {
     }
 
     pub(super) fn update(&mut self, post: &Post) {
-        let post_timestamp = post.unix_timestamp() as u64;
+        let post_timestamp = post.nyc_timestamp() as u64;
         if post.is_op() {
             self.time_op = Some(post_timestamp);
             self.sticky = Some(post.sticky);

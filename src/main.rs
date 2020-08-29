@@ -7,14 +7,14 @@ static GLOBAL: Jemalloc = Jemalloc;
 
 use std::env;
 use std::panic;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use clap::{crate_version, App, Arg, ArgMatches};
-use env_logger;
 use futures::prelude::*;
 use log::{error, info, warn};
+use pretty_env_logger;
 
 mod api;
 mod config;
@@ -32,6 +32,22 @@ async fn run_async(config: config::Config) -> i32 {
         let mut b = reqwest::Client::builder();
         if let Some(timeout) = config.request_timeout {
             b = b.timeout(timeout);
+        }
+        if config.request_only_proxy && config.request_proxy.is_empty() {
+            error!("Configuration error: request_only_proxy is true but not proxies were provided");
+            return 1;
+        }
+        if !config.request_proxy.is_empty() {
+            let rr = AtomicUsize::new(0);
+            let proxies = None
+                .into_iter()
+                .filter(|_| !config.request_only_proxy)
+                .chain(config.request_proxy.iter().cloned().map(|p| Some(p)))
+                .collect::<Vec<_>>();
+            b = b.proxy(reqwest::Proxy::custom(move |_| {
+                let r = rr.fetch_add(1, Ordering::AcqRel);
+                proxies.get(r % proxies.len()).unwrap().clone()
+            }));
         }
         b.build().unwrap()
     };
@@ -97,7 +113,7 @@ async fn run_async(config: config::Config) -> i32 {
                 )
             })
             .fold(
-                storage::asagi::AsagiBuilder::from(asagi_conf.clone()),
+                storage::asagi::AsagiBuilder::from(asagi_conf),
                 |acc, (name, thumbs, media)| acc.with_board(name, thumbs, media),
             )
             .with_http_client(http_client.clone())
@@ -216,7 +232,7 @@ fn main() {
     if env::var("RUST_LOG").is_err() {
         env::set_var("RUST_LOG", "torako=info")
     }
-    env_logger::init();
+    pretty_env_logger::init();
 
     let matches = App::new("Torako")
         .author("github.com/miyachan")

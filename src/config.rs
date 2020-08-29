@@ -13,6 +13,10 @@ pub struct Config {
     pub rate_limit: Option<NonZeroU32>,
     #[serde(with = "humantime_serde")]
     pub request_timeout: Option<Duration>,
+    #[serde(default)]
+    pub request_proxy: Vec<url::Url>,
+    #[serde(default)]
+    pub request_only_proxy: bool,
     pub boards: Board,
     pub backend: Backend,
 }
