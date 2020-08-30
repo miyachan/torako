@@ -6,13 +6,14 @@ use std::sync::{
 };
 use std::time::SystemTime;
 
+use futures::future::Either;
 use futures::prelude::*;
 use futures::task::AtomicWaker;
 use log::{info, warn};
 use mysql_async::prelude::*;
 use rustc_hash::FxHashMap;
 
-use super::{Asagi, AsagiInner, BoardOpts, Error};
+use super::{Asagi, AsagiInner, AsagiTask, BoardOpts, Error};
 
 pub struct AsagiBuilder {
     boards: FxHashMap<String, BoardOpts>,
@@ -264,6 +265,8 @@ impl AsagiBuilder {
             }
         };
 
+        let (process_tx, process_rx) = tokio::sync::mpsc::unbounded_channel();
+
         let asagi = AsagiInner {
             media_group: self.group()?,
             client: self.http_client.unwrap_or(reqwest::Client::new()),
@@ -298,11 +301,28 @@ impl AsagiBuilder {
             close_waker: Arc::new(AtomicWaker::new()),
             failed: AtomicBool::new(false),
             metrics: Arc::new(super::AsagiMetrics::default()),
+            process_tx,
         };
 
-        Ok(Asagi {
-            inner: Arc::new(asagi),
-        })
+        let asagi = Arc::new(asagi);
+        let asagi2 = asagi.clone();
+
+        tokio::spawn(
+            process_rx
+                .take_while(|x| future::ready(x.is_some()))
+                .zip(stream::repeat(asagi2))
+                .map(|(x, asagi2)| match x {
+                    AsagiTask::Posts(p) => Either::Left(asagi2.send_posts(p)),
+                    AsagiTask::Media(a, b) => {
+                        Either::Right(asagi2.retry_save_media(a, b).map(|_| ()))
+                    }
+                    AsagiTask::Closed => unreachable!(),
+                })
+                .buffer_unordered(usize::MAX)
+                .for_each(|_| future::ready(())),
+        );
+
+        Ok(Asagi { inner: asagi })
     }
 }
 

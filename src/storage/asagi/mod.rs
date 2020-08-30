@@ -95,7 +95,7 @@ enum MediaKind {
     Image,
 }
 
-#[derive(Eq, PartialEq, Clone)]
+#[derive(Eq, PartialEq, Clone, Debug)]
 struct MediaDescriptor {
     board: smallstr::SmallString<[u8; 4]>,
     hash: smallstr::SmallString<[u8; 32]>,
@@ -229,6 +229,7 @@ struct AsagiInner {
     flush_waker: Arc<AtomicWaker>,
     close_waker: Arc<AtomicWaker>,
     metrics: Arc<AsagiMetrics>,
+    process_tx: tokio::sync::mpsc::UnboundedSender<AsagiTask>,
 
     #[cfg(target_family = "windows")]
     #[allow(dead_code)]
@@ -236,6 +237,23 @@ struct AsagiInner {
 
     #[cfg(not(target_family = "windows"))]
     media_group: Option<users::Group>,
+}
+
+#[derive(Debug)]
+enum AsagiTask {
+    Posts(Vec<imageboard::Post>),
+    Media(thread::Media, MediaDescriptor),
+    Closed,
+}
+
+impl AsagiTask {
+    fn is_some(&self) -> bool {
+        match self {
+            AsagiTask::Posts(_) => true,
+            AsagiTask::Media(_, _) => true,
+            AsagiTask::Closed => false,
+        }
+    }
 }
 
 pub struct Asagi {
@@ -1129,7 +1147,7 @@ impl AsagiInner {
     }
 
     async fn retry_save_media(
-        &self,
+        self: Arc<Self>,
         media: thread::Media,
         meta: MediaDescriptor,
     ) -> Result<(), Error> {
@@ -1158,6 +1176,70 @@ impl AsagiInner {
                     error!("Downloading media failed: {}", err);
                     return Err(err);
                 }
+            }
+        }
+    }
+
+    async fn send_posts(self: Arc<Self>, item: Vec<imageboard::Post>) {
+        let board = item[0].board.clone();
+        let thread_no = item[0].thread_no();
+        let post_no = item[0].no;
+        let sz = item.len();
+        match self.save_posts(item).await {
+            Ok(images) => match self.lookup_media(images).await {
+                Ok(images) => {
+                    stream::iter(images)
+                        .map(|(media, meta)| {
+                            self.inflight_media.fetch_add(1, Ordering::Relaxed);
+                            let inner2 = &self;
+                            self.download_tokens
+                                .acquire()
+                                .then(move |permit| async move {
+                                    let r = inner2.save_media(&media, &meta).await;
+                                    drop(permit);
+                                    inner2.inflight_media.fetch_sub(1, Ordering::Relaxed);
+                                    match r {
+                                        Ok(_) => Ok(()),
+                                        Err(err) => Err((err, media, meta)),
+                                    }
+                                })
+                        })
+                        .buffer_unordered(self.max_concurrent_downloads)
+                        .for_each(|download| match download {
+                            Ok(_) => futures::future::ready(()),
+                            Err((err, media, meta)) => {
+                                if err.is_request_failure() {
+                                    if err.is_cloudflare() {
+                                        self.metrics.incr_cfblocked(1);
+                                    }
+                                    self.process_tx.send(AsagiTask::Media(media, meta)).unwrap();
+                                    futures::future::ready(error!(
+                                        "Downloading media failed, will retry later: {}",
+                                        err
+                                    ))
+                                } else {
+                                    futures::future::ready(error!(
+                                        "Downloading media failed: {}",
+                                        err
+                                    ))
+                                }
+                            }
+                        })
+                        .await
+                }
+                Err(err) => {
+                    error!("Failed to lookup media hashes: {}", err);
+                }
+            },
+            Err(err) => {
+                error!(
+                    "Failed to save data for {} posts [First]: {}/{}/{}: {}",
+                    sz, board, thread_no, post_no, err
+                );
+                if !self.persist_fatal {
+                    warn!("Some posts were unable to be archived, however the error isn't being treated as fatal. Some posts may be lost.")
+                }
+                self.failed.store(true, Ordering::SeqCst);
             }
         }
     }
@@ -1237,74 +1319,7 @@ impl Sink<Vec<imageboard::Post>> for Asagi {
             self.inner
                 .inflight_posts
                 .fetch_add(item.len(), Ordering::AcqRel);
-            let inner = self.inner.clone();
-            tokio::spawn(async move {
-                let board = item[0].board.clone();
-                let thread_no = item[0].thread_no();
-                let post_no = item[0].no;
-                let sz = item.len();
-                match inner.save_posts(item).await {
-                    Ok(images) => match inner.lookup_media(images).await {
-                        Ok(images) => {
-                            stream::iter(images)
-                                .map(|(media, meta)| {
-                                    inner.inflight_media.fetch_add(1, Ordering::Relaxed);
-                                    let inner2 = &inner;
-                                    inner
-                                        .download_tokens
-                                        .acquire()
-                                        .then(move |permit| async move {
-                                            let r = inner2.save_media(&media, &meta).await;
-                                            drop(permit);
-                                            inner2.inflight_media.fetch_sub(1, Ordering::Relaxed);
-                                            match r {
-                                                Ok(_) => Ok(()),
-                                                Err(err) => Err((err, media, meta)),
-                                            }
-                                        })
-                                })
-                                .buffer_unordered(inner.max_concurrent_downloads)
-                                .for_each(|download| match download {
-                                    Ok(_) => futures::future::ready(()),
-                                    Err((err, media, meta)) => {
-                                        if err.is_request_failure() {
-                                            if err.is_cloudflare() {
-                                                inner.metrics.incr_cfblocked(1);
-                                            }
-                                            let inner2 = inner.clone();
-                                            tokio::spawn(async move {
-                                                inner2.retry_save_media(media, meta).await
-                                            });
-                                            futures::future::ready(error!(
-                                                "Downloading media failed, will retry later: {}",
-                                                err
-                                            ))
-                                        } else {
-                                            futures::future::ready(error!(
-                                                "Downloading media failed: {}",
-                                                err
-                                            ))
-                                        }
-                                    }
-                                })
-                                .await
-                        }
-                        Err(err) => {
-                            error!("Failed to lookup media hashes: {}", err);
-                        }
-                    },
-                    Err(err) => {
-                        error!(
-                            "Failed to save data for {} posts [First]: {}/{}/{}: {}",
-                            sz, board, thread_no, post_no, err
-                        );
-                        if !inner.persist_fatal {
-                            warn!("Some posts were unable to be archived, however the error isn't being treated as fatal. Some posts may be lost.")
-                        }
-                        inner.failed.store(true, Ordering::SeqCst);
-                    }
-                }
-            });
+            self.inner.process_tx.send(AsagiTask::Posts(item)).unwrap();
         }
         Ok(())
     }
@@ -1321,6 +1336,7 @@ impl Sink<Vec<imageboard::Post>> for Asagi {
     }
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<(), Self::Error>> {
+        self.inner.process_tx.send(AsagiTask::Closed).unwrap();
         if self.inner.has_failed() {
             return Poll::Ready(Err(Error::ArchiveError));
         }
