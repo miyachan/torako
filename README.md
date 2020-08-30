@@ -16,6 +16,8 @@ Builds are generated for Windows, Linux and macOS and are available on the GitHu
 $ ./torako -c ./Torako.toml
 ```
 
+> *Note*: Torako may create a large number of connections during it's warmup phase and this may cause your system to hit open file descriptor limits. Make sure to increase them.
+
 ## Configuration
 
 The `Torako.sample.toml` sample file can be used as a base to start running Torako. The sample configuration file also documents all the various options that can be used to configure and customize Torako. In order to start Torako you must provide at least one board to scape and configure a storage backend.
