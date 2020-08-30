@@ -185,7 +185,6 @@ pub struct BoardStream {
     refresh_rate: Duration,
     base_url: &'static str,
     board_url: reqwest::Url,
-    thread_par: usize,
     watched: FxHashMap<u64, WatchedThread>,
     rate_limiter: Option<
         Arc<
@@ -233,7 +232,6 @@ impl BoardStream {
             delay: delay_until(tokio::time::Instant::now()),
             state: State::Sleeping(None),
             board_url,
-            thread_par: usize::MAX,
             watched: FxHashMap::default(),
             rate_limiter,
             base_url,
@@ -433,9 +431,8 @@ impl Stream for BoardStream {
                                                 })
                                                 .map_err(move |err| ((thread_no, page_no), err))
                                         });
-                                    let f = stream::iter(f.collect::<Vec<_>>())
-                                        .buffer_unordered(self.thread_par)
-                                        .boxed();
+                                    let f =
+                                        f.collect::<futures::stream::FuturesUnordered<_>>().boxed();
                                     self.state = State::Archive(f, last_modified);
                                     continue;
                                 }
