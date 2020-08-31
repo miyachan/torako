@@ -284,10 +284,7 @@ impl Post {
                 let mut ret = text;
                 for (patt, repl) in RE_PIPELINE[4..].iter() {
                     match patt.replace_all(&ret, *repl) {
-                        std::borrow::Cow::Owned(s) => {
-                            ret.clear();
-                            ret.push_str(s.as_ref());
-                        }
+                        std::borrow::Cow::Owned(s) => ret = s,
                         std::borrow::Cow::Borrowed(_) => (),
                     };
                 }
@@ -302,10 +299,7 @@ impl Post {
                 let mut ret = text.as_ref().to_owned();
                 for (patt, repl) in RE_PIPELINE.iter() {
                     match patt.replace_all(&ret, *repl) {
-                        std::borrow::Cow::Owned(s) => {
-                            ret.clear();
-                            ret.push_str(s.as_ref());
-                        }
+                        std::borrow::Cow::Owned(s) => ret = s,
                         std::borrow::Cow::Borrowed(_) => (),
                     };
                 }
@@ -363,10 +357,7 @@ impl Post {
         let mut ret = String::from(text.as_ref());
         for (patt, repl) in RE_PIPELINE.iter() {
             match patt.replace_all(&ret, *repl) {
-                std::borrow::Cow::Owned(s) => {
-                    ret.clear();
-                    ret.push_str(s.as_ref());
-                }
+                std::borrow::Cow::Owned(s) => ret = s,
                 std::borrow::Cow::Borrowed(_) => (),
             };
         }
