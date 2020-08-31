@@ -76,10 +76,10 @@ request_timeout = "30m"
 #media = true
 
 ## Media content host URL. (Default: "https://i.4cdn.org/")
-# media_url = "https://i.4cdn.org/"
+#media_url = "https://i.4cdn.org/"
 
 ## Thumb content host URL (Default: "https://i.4cdn.org/")
-# thumb_url = "https://i.4cdn.org/"
+#thumb_url = "https://i.4cdn.org/"
 
 ## Media Path. This is where downloaded content is stored. If this is not
 ## provided then media downloading will be disabled.

@@ -301,6 +301,13 @@ impl AsagiInner {
                     all_posts.into_iter().partition(|p| p.board == board);
                 all_posts = remaining;
 
+                // Trying to insert more than 2,000 posts at once will
+                // generate more than 2^16 placeholders which will cause the
+                // insert to fail
+                if posts.len() > 2000 {
+                    all_posts.extend(posts.split_off(2000));
+                }
+
                 /*
                  * When inserting many posts concurrently
                  * MySQL will take a gap lock over the index we are working
