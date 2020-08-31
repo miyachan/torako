@@ -368,8 +368,7 @@ impl AsagiInner {
                             .keys()
                             .map(|post_no| mysql_async::Value::from(post_no))
                             .collect::<Vec<_>>();
-                        let placeholders = Some("?")
-                            .into_iter()
+                        let placeholders = std::iter::once("?")
                             .chain((0..values.len() - 1).map(|_| ", ?"))
                             .collect::<String>();
                         let stmt = format!(
@@ -429,20 +428,16 @@ impl AsagiInner {
                          * the lowest id
                          */
                         let media_image_table = format!("INSERT INTO `{}_images` (media_hash, media, preview_op, preview_reply, total) VALUES (?, ?, ?, ?, ?)", &board);
-                        let media_query = Some(media_image_table.as_str())
-                            .into_iter()
+                        let media_query = std::iter::once(media_image_table.as_str())
                             .chain((0..(rows - 1)).map(|_| ", (?, ?, ?, ?, ?)"))
-                            .chain(
-                                Some(
-                                    " ON DUPLICATE KEY UPDATE
+                            .chain(std::iter::once(
+                                " ON DUPLICATE KEY UPDATE
                             media_id = LAST_INSERT_ID(media_id),
                             total = (total + 1),
                             preview_op = COALESCE(preview_op, VALUES(preview_op)),
                             preview_reply = COALESCE(preview_reply, VALUES(preview_reply)),
                             media = COALESCE(media, VALUES(media));",
-                                )
-                                .into_iter(),
-                            )
+                            ))
                             .collect::<String>();
 
                         let media_results = match tx
@@ -613,11 +608,10 @@ impl AsagiInner {
                         true => ", (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         false => ", (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     };
-                    let board_query = Some(board_table.as_str())
-                .into_iter()
+                    let board_query = std::iter::once(board_table.as_str())
                 .chain((0..(rows - 1)).map(|_| placeholders))
                 .chain(
-                    Some(
+                    std::iter::once(
                         " ON DUPLICATE KEY UPDATE
                         deleted = VALUES(deleted),
                         timestamp_expired = COALESCE(NULLIF(VALUES(timestamp_expired), 0), timestamp_expired),
@@ -626,8 +620,7 @@ impl AsagiInner {
                         comment = COALESCE(VALUES(comment), comment),
                         exif = COALESCE(VALUES(exif), exif);
                        ",
-                    )
-                    .into_iter(),
+                    ),
                 )
                 .collect::<String>();
 
@@ -654,11 +647,10 @@ impl AsagiInner {
                             let rows = threads.len();
                             let thread_table = format!("INSERT INTO `{}_threads` (thread_num, time_op, time_last, time_bump, time_ghost, time_ghost_bump, time_last_modified, nreplies, nimages, sticky, locked)
                     VALUES (?, COALESCE(?, 0), ?, ?, ?, ?, ?, ?, ?, COALESCE(?, false), COALESCE(?, false))", &board);
-                            let thread_query = Some(thread_table.as_str())
-                        .into_iter()
+                            let thread_query = std::iter::once(thread_table.as_str())
                         .chain((0..(rows - 1)).map(|_| ", (?, COALESCE(?, 0), ?, ?, ?, ?, ?, ?, ?, COALESCE(?, false), COALESCE(?, false))"))
                         .chain(
-                            Some(
+                            std::iter::once(
                                 " ON DUPLICATE KEY UPDATE
                                 time_op = GREATEST(time_op, VALUES(time_op)),
                                 sticky = COALESCE(VALUES(sticky), sticky),
@@ -670,7 +662,6 @@ impl AsagiInner {
                                 nimages = VALUES(nimages) + nimages;
                             ",
                             )
-                            .into_iter(),
                         )
                         .collect::<String>();
                             let thread_values = threads
@@ -706,12 +697,10 @@ impl AsagiInner {
                         VALUES (?, ?, ?, ?, ?, ?, ?)",
                             &board
                         );
-                                let daily_query = Some(daily_table.as_str())
-                                    .into_iter()
+                                let daily_query = std::iter::once(daily_table.as_str())
                                     .chain((0..(rows - 1)).map(|_| ", (?, ?, ?, ?, ?, ?, ?)"))
-                                    .chain(
-                                        Some(
-                                            " ON DUPLICATE KEY UPDATE
+                                    .chain(std::iter::once(
+                                        " ON DUPLICATE KEY UPDATE
                                     posts = VALUES(posts) + posts,
                                     images = VALUES(images) + images,
                                     sage = VALUES(sage) + sage,
@@ -719,9 +708,7 @@ impl AsagiInner {
                                     trips = VALUES(trips) + trips,
                                     names = VALUES(names) + names;
                                 ",
-                                        )
-                                        .into_iter(),
-                                    )
+                                    ))
                                     .collect::<String>();
 
                                 let daily_values = daily
@@ -766,18 +753,14 @@ impl AsagiInner {
                         VALUES (?, ?, ?, ?)",
                                     &board
                                 );
-                                let users_query = Some(users_table.as_str())
-                                    .into_iter()
+                                let users_query = std::iter::once(users_table.as_str())
                                     .chain((0..(rows - 1)).map(|_| ", (?, ?, ?, ?)"))
-                                    .chain(
-                                        Some(
-                                            " ON DUPLICATE KEY UPDATE
+                                    .chain(std::iter::once(
+                                        " ON DUPLICATE KEY UPDATE
                                     firstseen = LEAST(VALUES(firstseen), firstseen),
                                     postcount = VALUES(postcount) + postcount;
                                 ",
-                                        )
-                                        .into_iter(),
-                                    )
+                                    ))
                                     .collect::<String>();
                                 let users_values = users
                                     .into_iter()
@@ -924,8 +907,7 @@ impl AsagiInner {
             .iter()
             .map(|h| mysql_async::Value::from(h.hash.as_ref()))
             .collect::<Vec<_>>();
-        let placeholders = Some("?")
-            .into_iter()
+        let placeholders = std::iter::once("?")
             .chain((0..values.len() - 1).map(|_| ", ?"))
             .collect::<String>();
         let stmt = format!(
