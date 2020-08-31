@@ -28,6 +28,8 @@ pub struct AsagiBuilder {
     http_client: Option<reqwest::Client>,
     media_url: Option<reqwest::Url>,
     thumb_url: Option<reqwest::Url>,
+    download_thumbs: bool,
+    download_media: bool,
     concurrent_downloads: usize,
     inflight_posts: usize,
     persist_is_fatal: bool,
@@ -50,6 +52,8 @@ impl Default for AsagiBuilder {
             http_client: None,
             media_url: None,
             thumb_url: None,
+            download_thumbs: true,
+            download_media: true,
             concurrent_downloads: 128,
             inflight_posts: usize::MAX,
             persist_is_fatal: true,
@@ -110,6 +114,16 @@ impl AsagiBuilder {
 
     pub fn with_thumb_url<T: reqwest::IntoUrl>(mut self, url: T) -> Self {
         self.thumb_url = Some(url.into_url().unwrap());
+        self
+    }
+
+    pub fn download_thumbs(mut self, enable: bool) -> Self {
+        self.download_thumbs = enable;
+        self
+    }
+
+    pub fn download_media(mut self, enable: bool) -> Self {
+        self.download_media = enable;
         self
     }
 
@@ -276,6 +290,8 @@ impl AsagiBuilder {
             thumb_url: self
                 .thumb_url
                 .unwrap_or("https://i.4cdn.org/".parse().unwrap()),
+            download_thumbs: self.download_thumbs,
+            download_media: self.download_media,
             tmp_dir,
             boards: self.boards,
             without_triggers: self.without_triggers,
@@ -344,6 +360,12 @@ impl From<&crate::config::Asagi> for AsagiBuilder {
         }
         if let Some(thumb_url) = &config.thumb_url {
             builder = builder.with_thumb_url(thumb_url.clone());
+        }
+        if let Some(download_thumbs) = config.thumbs {
+            builder = builder.download_thumbs(download_thumbs);
+        }
+        if let Some(download_media) = config.media {
+            builder = builder.download_media(download_media);
         }
         if let Some(use_triggers) = config.database.use_triggers {
             builder = builder.with_triggers(use_triggers);

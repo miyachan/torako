@@ -214,6 +214,8 @@ struct AsagiInner {
     tmp_dir: PathBuf,
     media_url: reqwest::Url,
     thumb_url: reqwest::Url,
+    download_thumbs: bool,
+    download_media: bool,
     max_concurrent_downloads: usize,
     max_inflight_posts: usize,
     media_backpressure: bool,
@@ -1084,21 +1086,18 @@ impl AsagiInner {
         if self.media_path.is_none() {
             return Ok(());
         }
-        if !self
-            .boards
-            .get(meta.board.as_ref())
-            .map(|x| x.thumbs || x.media)
-            .unwrap_or(false)
-        {
-            return Ok(());
-        }
         if media.banned {
             return Ok(());
         }
         let (dl_thumb, dl_media) = self
             .boards
             .get(meta.board.as_ref())
-            .map(|x| (x.thumbs, x.media))
+            .map(|x| {
+                (
+                    x.thumbs && self.download_thumbs,
+                    x.media && self.download_media,
+                )
+            })
             .unwrap();
         if !(dl_thumb || dl_media) {
             return Ok(());
