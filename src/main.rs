@@ -55,6 +55,10 @@ async fn run_async(config: config::Config) -> i32 {
         let quota = governor::Quota::per_second(limit);
         Arc::new(governor::RateLimiter::direct(quota))
     });
+    let concurrency_limiter = config.thread_concurrency.map(|limit| {
+        let sem = tokio::sync::Semaphore::new(limit.get());
+        Arc::new(sem)
+    });
 
     let boards = config
         .boards
@@ -77,6 +81,7 @@ async fn run_async(config: config::Config) -> i32 {
                     .or(config.boards.refresh_rate)
                     .unwrap_or(Duration::from_secs(10)),
                 rate_limiter.clone(),
+                concurrency_limiter.clone(),
                 board
                     .deleted_page_threshold
                     .or(config.boards.deleted_page_threshold)

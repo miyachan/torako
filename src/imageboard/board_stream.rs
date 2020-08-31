@@ -27,6 +27,8 @@ pub enum Error {
     Request(#[from] reqwest::Error),
     #[error("The request was blocked by Cloudflare's bot detection")]
     CloudFlareBlocked(reqwest::Error),
+    #[error("Exceeded thread parallelism")]
+    ThreadConcurrency,
 }
 
 impl Error {
@@ -48,6 +50,20 @@ impl Error {
         match self {
             Error::CloudFlareBlocked(_) => true,
             _ => false,
+        }
+    }
+
+    fn is_concurrency(&self) -> bool {
+        match self {
+            Error::ThreadConcurrency => true,
+            _ => false,
+        }
+    }
+
+    fn into_reqwest(self) -> reqwest::Error {
+        match self {
+            Error::Request(req) => req,
+            _ => panic!("Enum variant was not reqwest"),
         }
     }
 }
@@ -148,6 +164,11 @@ impl From<&Post> for WatchedPost {
     }
 }
 
+enum ConcurrencyToken {
+    None,
+    Owned(tokio::sync::OwnedSemaphorePermit),
+}
+
 #[derive(Debug, Default)]
 pub struct Metrics {
     pub board: String,
@@ -195,6 +216,7 @@ pub struct BoardStream {
             >,
         >,
     >,
+    concurrency_limit: Option<Arc<tokio::sync::Semaphore>>,
     deleted_page_threshold: usize,
     metrics: Arc<Metrics>,
 }
@@ -215,6 +237,7 @@ impl BoardStream {
                 >,
             >,
         >,
+        concurrency_limit: Option<Arc<tokio::sync::Semaphore>>,
         deleted_page_threshold: usize,
     ) -> Self {
         let base_url = match tls {
@@ -234,6 +257,7 @@ impl BoardStream {
             board_url,
             watched: FxHashMap::default(),
             rate_limiter,
+            concurrency_limit,
             base_url,
             deleted_page_threshold,
             metrics: Arc::new(Metrics {
@@ -403,13 +427,31 @@ impl Stream for BoardStream {
                                             )));
                                             let req = self.client.get(thread_url.as_str()).send();
                                             let board = self.board.clone();
+                                            let permit = match &self.concurrency_limit {
+                                                Some(l) => l
+                                                    .clone()
+                                                    .try_acquire_owned()
+                                                    .map(|x| ConcurrencyToken::Owned(x)),
+                                                None => Ok(ConcurrencyToken::None),
+                                            };
+                                            let has_permit = match &permit {
+                                                Ok(_) => Ok(()),
+                                                Err(_) => Err(Error::ThreadConcurrency),
+                                            };
                                             self.get_api_token()
-                                                .then(move |_| {
+                                                .map(move |_| has_permit)
+                                                .and_then(move |_| {
                                                     debug!("Loading thread URL: {}", thread_url);
-                                                    req
+                                                    req.map_err(|err| Error::from(err))
                                                 })
-                                                .and_then(|resp| async { resp.error_for_status() })
-                                                .and_then(|resp| resp.json::<Thread>())
+                                                .and_then(|resp| async {
+                                                    resp.error_for_status()
+                                                        .map_err(|err| Error::from(err))
+                                                })
+                                                .and_then(|resp| {
+                                                    resp.json::<Thread>()
+                                                        .map_err(|err| Error::from(err))
+                                                })
                                                 .map_ok(move |mut t| {
                                                     t.posts.iter_mut().for_each(|x| {
                                                         x.board.clear();
@@ -420,16 +462,21 @@ impl Stream for BoardStream {
                                                 .map_err(move |err| match err.status() {
                                                     Some(
                                                         reqwest::StatusCode::SERVICE_UNAVAILABLE,
-                                                    ) => Error::CloudFlareBlocked(err),
+                                                    ) => {
+                                                        Error::CloudFlareBlocked(err.into_reqwest())
+                                                    }
                                                     Some(
                                                         reqwest::StatusCode::TOO_MANY_REQUESTS,
-                                                    ) => Error::CloudFlareBlocked(err),
+                                                    ) => {
+                                                        Error::CloudFlareBlocked(err.into_reqwest())
+                                                    }
                                                     Some(reqwest::StatusCode::FORBIDDEN) => {
-                                                        Error::CloudFlareBlocked(err)
+                                                        Error::CloudFlareBlocked(err.into_reqwest())
                                                     }
                                                     _ => Error::from(err),
                                                 })
                                                 .map_err(move |err| ((thread_no, page_no), err))
+                                                .inspect(move |_| drop(permit))
                                         });
                                     let f =
                                         f.collect::<futures::stream::FuturesUnordered<_>>().boxed();
@@ -552,6 +599,8 @@ impl Stream for BoardStream {
                                 }
                             } else if err.is_cloudflare() {
                                 self.metrics.incr_cf_blocked(1);
+                            } else if err.is_concurrency() {
+                                continue;
                             }
                             error!(
                                 "Failed to load thread {} on board {} on host {}: {}",

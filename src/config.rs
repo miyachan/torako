@@ -11,6 +11,7 @@ use serde::Deserialize;
 pub struct Config {
     pub api_addr: Option<SocketAddr>,
     pub rate_limit: Option<NonZeroU32>,
+    pub thread_concurrency: Option<NonZeroUsize>,
     #[serde(with = "humantime_serde")]
     pub request_timeout: Option<Duration>,
     #[serde(default)]
