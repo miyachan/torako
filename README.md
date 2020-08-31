@@ -90,5 +90,5 @@ When Torako first starts, it will attempt to download all posts and any missing 
 
 Resource information:
 * **CPU**: Torako will use nearly all cores if there is a large backlog of media to download
-* **Memory**: Memory usage is tunable and depends on your settings for `concurrent_downloads` and `inflight_posts`, and `media_backpressure`. In this test Torako spikes up to 3 GiB of memory, slowly settled to 500MiB of usage as the backlog cleared
+* **Memory**: Memory usage is tunable and depends on your settings for `concurrent_downloads` and `inflight_posts`, and `media_backpressure`. In this test Torako spikes up to 3 GiB of memory, slowly settled to 170MiB of usage as the backlog cleared
 * **Network**: The instance's bandwidth was completely maxed out at an average of 128MiB/s

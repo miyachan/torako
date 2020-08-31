@@ -8,6 +8,18 @@ api_addr = "127.0.0.1:2377"
 ## If this option is not specified, there will be no rate limiting
 #rate_limit = 10
 
+## Global board thread concurrency. This is a limit on the amount of
+## of threads that will be retrieved and buffered at once. If this limit
+## is exceeded then no more threads will be downloaded until the current
+## threads are cleared, and those threads that weren't able to be downloaded
+## because of this limit will be retried after the next board refresh.
+##
+## Not recommended unless memory usage is a real issue. Prefer using
+## `rate_limit` (to throttle API calls), `inflight_posts` (to throttle MySQL
+## load), or `concurrent_downloads` (to throttle network bandwidth).
+## (Default: unlimited)
+#thread_concurrency = 2
+
 ## Global HTTP Timeout. Any request that takes longer than this
 ## is cancelled. Note that if Torako has very slow internet for some reason
 ## this timeout will cancel any download that takes longer than 30 minutes.
