@@ -193,7 +193,7 @@ impl AsagiBuilder {
     }
 
     #[cfg(all(feature = "io-uring", target_os = "linux"))]
-    fn io_ring(&self) -> rio::Ring {
+    fn io_ring(&self) -> rio::Rio {
         rio::new().expect("create uring")
     }
 

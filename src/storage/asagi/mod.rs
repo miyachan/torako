@@ -1040,6 +1040,7 @@ impl AsagiInner {
                 MediaKind::Image => debug!("Downloading thumb {:?}", url),
             };
             let dl_start = Instant::now();
+            #[allow(unused_mut)]
             let (mut file, downloaded) = self
                 .client
                 .get(url)
