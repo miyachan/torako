@@ -192,6 +192,16 @@ impl AsagiBuilder {
             .transpose()
     }
 
+    #[cfg(all(feature = "io-uring", target_os = "linux"))]
+    fn io_ring(&self) -> rio::Ring {
+        rio::new().expect("create uring")
+    }
+
+    #[cfg(not(all(feature = "io-uring", target_os = "linux")))]
+    fn io_ring(&self) -> () {
+        ()
+    }
+
     pub async fn build(mut self) -> Result<Asagi, Error> {
         if self.boards.len() == 0 {
             return Err(Error::NoBoards);
@@ -282,6 +292,7 @@ impl AsagiBuilder {
         let (process_tx, process_rx) = tokio::sync::mpsc::unbounded_channel();
 
         let asagi = AsagiInner {
+            io_ring: self.io_ring(),
             media_group: self.group()?,
             client: self.http_client.unwrap_or(reqwest::Client::new()),
             media_url: self

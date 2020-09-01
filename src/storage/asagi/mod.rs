@@ -239,6 +239,13 @@ struct AsagiInner {
 
     #[cfg(not(target_family = "windows"))]
     media_group: Option<users::Group>,
+
+    #[cfg(all(feature = "io-uring", target_os = "linux"))]
+    io_ring: rio::Rio,
+
+    #[cfg(not(all(feature = "io-uring", target_os = "linux")))]
+    #[allow(dead_code)]
+    io_ring: (),
 }
 
 #[derive(Debug)]
@@ -866,7 +873,8 @@ impl AsagiInner {
                 MediaKind::Image => "image",
             })
             .join(subdir);
-        if !subdir.exists() {
+        //if !subdir.exists() {
+        if tokio::fs::metadata(&subdir).await.is_err() {
             let parent = subdir.parent().unwrap();
             let has_parent = parent.exists();
             if let Err(err) = tokio::fs::create_dir_all(&subdir).await {
@@ -1011,7 +1019,8 @@ impl AsagiInner {
             }
         };
 
-        if !filename.exists() {
+        // if !filename.exists() {
+        if tokio::fs::metadata(&filename).await.is_err() {
             let tempname = self.tmp_dir.join(
                 rand::thread_rng()
                     .sample_iter(&Alphanumeric)
@@ -1045,6 +1054,13 @@ impl AsagiInner {
                     _ => Error::from(err),
                 })
                 .try_fold((file, 0), |(mut f, bytes), buf| async move {
+                    #[cfg(all(feature = "io-uring", target_os = "linux"))]
+                    match self.io_ring.write_at(&f, &buf, 0).await {
+                        Ok(b) => Ok((f, bytes + b)),
+                        Err(e) => Err(Error::from(e)),
+                    }
+
+                    #[cfg(not(all(feature = "io-uring", target_os = "linux")))]
                     match f.write_all(&buf).await {
                         Ok(_) => Ok((f, bytes + buf.len())),
                         Err(e) => Err(Error::from(e)),
