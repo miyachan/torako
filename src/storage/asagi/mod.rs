@@ -1056,9 +1056,19 @@ impl AsagiInner {
                 })
                 .try_fold((file, 0), |(mut f, bytes), buf| async move {
                     #[cfg(all(feature = "io-uring", target_os = "linux"))]
-                    match self.io_ring.write_at(&f, &buf, 0).await {
-                        Ok(b) => Ok((f, bytes + b)),
-                        Err(e) => Err(Error::from(e)),
+                    loop {
+                        let mut idx = 0;
+                        match self.io_ring.write_at(&f, &buf[idx..], idx).await {
+                            Ok(b) => {
+                                if idx + b == buf.len() {
+                                    return Ok((f, bytes + buf.len()));
+                                } else {
+                                    idx += b;
+                                    continue;
+                                }
+                            }
+                            Err(e) => return Err(Error::from(e)),
+                        }
                     }
 
                     #[cfg(not(all(feature = "io-uring", target_os = "linux")))]
@@ -1069,7 +1079,9 @@ impl AsagiInner {
                 })
                 .await?;
 
+            #[cfg(not(all(feature = "io-uring", target_os = "linux")))]
             file.flush().await?;
+
             drop(file);
             tokio::fs::rename(&tempname, &filename).await?;
             info!(
