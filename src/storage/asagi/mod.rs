@@ -466,7 +466,7 @@ impl AsagiInner {
                             Ok(r) => r,
                             Err(err) => match err.is_deadlock() {
                                 true => {
-                                    warn!("Hit MySQL deadlock when processing board images on board {}. Retrying...", board);
+                                    debug!("Hit MySQL deadlock when processing board images on board {}. Retrying...", board);
                                     tx.rollback().await?;
                                     sleep_jitter(5, 50).await;
                                     continue;
@@ -1232,7 +1232,7 @@ impl AsagiInner {
                                         self.metrics.incr_cfblocked(1);
                                     }
                                     self.process_tx.send(AsagiTask::Media(media, meta)).unwrap();
-                                    futures::future::ready(error!(
+                                    futures::future::ready(debug!(
                                         "Downloading media failed, will retry later: {}",
                                         err
                                     ))
