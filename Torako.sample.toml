@@ -120,7 +120,7 @@ media_path = "/var/lib/torako"
 ## concurrent downloads will ont exceed this number.
 ## Tune this number according to your memory and bandwidth preferences
 ## (Default: 128)
-#concurrent_downloads = 128
+#concurrent_downloads = 1024
 
 ## Setting this to true means that the media download queue will backpressure
 ## the system, and once all concurrent_download slots are full, no more new
