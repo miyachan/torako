@@ -282,11 +282,16 @@ impl AsagiBuilder {
 
         let tmp_dir = match self.tmp_dir.clone() {
             Some(t) => t,
-            None => {
-                let p = std::env::temp_dir().join("torako");
-                tokio::fs::create_dir_all(&p).await?;
-                p
+            None => std::env::temp_dir().join("torako"),
+        };
+
+        match tokio::fs::metadata(&tmp_dir).await {
+            Ok(m) => {
+                if !m.is_dir() {
+                    return Err(Error::InvalidTempDir(tmp_dir.to_owned()));
+                }
             }
+            Err(_) => tokio::fs::create_dir_all(&tmp_dir).await?,
         };
 
         let (process_tx, process_rx) = tokio::sync::mpsc::unbounded_channel();

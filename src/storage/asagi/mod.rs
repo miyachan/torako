@@ -52,6 +52,8 @@ pub enum Error {
     InvalidThreadOldDir,
     #[error("A fatal error occured when trying to archive posts")]
     ArchiveError,
+    #[error("Invalid Temporary Directory: {:?}", .0)]
+    InvalidTempDir(PathBuf),
     #[error("The request was blocked by Cloudflare's bot detection")]
     CloudFlareBlocked(reqwest::Error),
     #[error("mysql error: {}", .0)]
