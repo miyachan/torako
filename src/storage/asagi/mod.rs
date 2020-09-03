@@ -1359,7 +1359,7 @@ impl Sink<Vec<imageboard::Post>> for Asagi {
     }
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<(), Self::Error>> {
-        self.inner.process_tx.send(AsagiTask::Closed).unwrap();
+        let _ = self.inner.process_tx.send(AsagiTask::Closed);
         if self.inner.has_failed() {
             return Poll::Ready(Err(Error::ArchiveError));
         }
