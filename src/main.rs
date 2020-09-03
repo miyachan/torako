@@ -237,7 +237,7 @@ fn main() {
     if env::var("RUST_LOG").is_err() {
         env::set_var("RUST_LOG", "torako=info")
     }
-    pretty_env_logger::init();
+    pretty_env_logger::init_timed();
 
     let matches = App::new("Torako")
         .author("github.com/miyachan")

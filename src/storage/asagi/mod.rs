@@ -34,6 +34,7 @@ pub use builder::AsagiBuilder;
 use thread::Thread;
 
 const MYSQL_ERR_CODE_DEADLOCK: u16 = 1213;
+const MYSQL_ERR_CODE_INCR_CONFLICT: u16 = 1869;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -69,6 +70,17 @@ impl Error {
         if let Error::MySQL(err) = self {
             if let mysql_async::Error::Server(err) = err {
                 if err.code == MYSQL_ERR_CODE_DEADLOCK {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    fn is_auto_incr_conflict(&self) -> bool {
+        if let Error::MySQL(err) = self {
+            if let mysql_async::Error::Server(err) = err {
+                if err.code == MYSQL_ERR_CODE_INCR_CONFLICT {
                     return true;
                 }
             }
@@ -464,15 +476,20 @@ impl AsagiInner {
                             .await
                         {
                             Ok(r) => r,
-                            Err(err) => match err.is_deadlock() {
-                                true => {
-                                    debug!("Hit MySQL deadlock when processing board images on board {}. Retrying...", board);
-                                    tx.rollback().await?;
-                                    sleep_jitter(5, 50).await;
-                                    continue;
-                                }
-                                false => return Err(err),
+                            Err(ref err) if err.is_deadlock() => {
+                                debug!("Hit MySQL deadlock when processing board images on board {}. Retrying...", board);
+                                tx.rollback().await?;
+                                sleep_jitter(5, 50).await;
+                                continue;
+
                             },
+                            Err(ref err) if err.is_auto_incr_conflict() => {
+                                warn!("Hit MySQL auto increment conflict when processing board images on board {}. Retrying...", board);
+                                tx.rollback().await?;
+                                sleep_jitter(5, 50).await;
+                                continue;
+                            },
+                            Err(err) => return Err(err),
                         };
 
                         media_results.last_insert_id().unwrap() as usize
@@ -650,7 +667,7 @@ impl AsagiInner {
                         Ok(r) => r,
                         Err(err) => match err.is_deadlock() {
                             true => {
-                                warn!("Hit MySQL deadlock when processing board images on board {}. Retrying...", board);
+                                debug!("Hit MySQL deadlock when processing board posts on board {}. Retrying...", board);
                                 tx.rollback().await?;
                                 sleep_jitter(5, 50).await;
                                 continue;
@@ -754,7 +771,7 @@ impl AsagiInner {
                                     Ok(r) => r,
                                     Err(err) => match err.is_deadlock() {
                                         true => {
-                                            warn!("Hit MySQL deadlock when processing board images on board {}. Retrying...", board);
+                                            debug!("Hit MySQL deadlock when processing board daily on board {}. Retrying...", board);
                                             tx.rollback().await?;
                                             sleep_jitter(5, 50).await;
                                             continue;
@@ -802,7 +819,7 @@ impl AsagiInner {
                                     Ok(r) => r,
                                     Err(err) => match err.is_deadlock() {
                                         true => {
-                                            warn!("Hit MySQL deadlock when processing board images on board {}. Retrying...", board);
+                                            debug!("Hit MySQL deadlock when processing board users on board {}. Retrying...", board);
                                             tx.rollback().await?;
                                             sleep_jitter(5, 50).await;
                                             continue;
