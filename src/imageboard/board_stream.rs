@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use futures::future::Either;
 use futures::prelude::*;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use reqwest::{self, Url};
@@ -602,8 +602,8 @@ impl Stream for BoardStream {
                             } else if err.is_concurrency() {
                                 continue;
                             }
-                            error!(
-                                "Failed to load thread {} on board {} on host {}: {}",
+                            warn!(
+                                "Failed to load thread {} on board {} on host {}; will retry: {}",
                                 thread_no, self.board, self.host, err
                             );
                             continue;
