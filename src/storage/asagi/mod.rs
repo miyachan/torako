@@ -34,7 +34,6 @@ pub use builder::AsagiBuilder;
 use thread::Thread;
 
 const MYSQL_ERR_CODE_DEADLOCK: u16 = 1213;
-const MYSQL_ERR_CODE_INCR_CONFLICT: u16 = 1869;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -70,17 +69,6 @@ impl Error {
         if let Error::MySQL(err) = self {
             if let mysql_async::Error::Server(err) = err {
                 if err.code == MYSQL_ERR_CODE_DEADLOCK {
-                    return true;
-                }
-            }
-        }
-        false
-    }
-
-    fn is_auto_incr_conflict(&self) -> bool {
-        if let Error::MySQL(err) = self {
-            if let mysql_async::Error::Server(err) = err {
-                if err.code == MYSQL_ERR_CODE_INCR_CONFLICT {
                     return true;
                 }
             }
@@ -425,8 +413,13 @@ impl AsagiInner {
                                 && !(p.is_retransmission || p.deleted)
                         })
                         .enumerate()
-                        .map(|(i, post)| {
-                            media_map.insert(post.md5.clone().unwrap(), i);
+                        .filter_map(|(i, post)| {
+                            match media_map.entry(post.md5.clone().unwrap()) {
+                                Entry::Occupied(_) => return None,
+                                Entry::Vacant(v) => {
+                                    v.insert(i);
+                                }
+                            };
                             let (preview_op, preview_reply) = if post.is_op() {
                                 (post.preview_orig().clone(), None)
                             } else {
@@ -439,7 +432,7 @@ impl AsagiInner {
                                 preview_reply.into(),              // preview_reply
                                 1usize.into(),                     // total
                             ]);
-                            values.into_vec()
+                            Some(values.into_vec())
                         })
                         .flatten()
                         .collect::<Vec<_>>();
@@ -482,12 +475,6 @@ impl AsagiInner {
                                 sleep_jitter(5, 50).await;
                                 continue;
 
-                            },
-                            Err(ref err) if err.is_auto_incr_conflict() => {
-                                warn!("Hit MySQL auto increment conflict when processing board images on board {}. Retrying...", board);
-                                tx.rollback().await?;
-                                sleep_jitter(5, 50).await;
-                                continue;
                             },
                             Err(err) => return Err(err),
                         };
