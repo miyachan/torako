@@ -2266,7 +2266,7 @@ dependencies = [
 
 [[package]]
 name = "torako"
-version = "0.6.2-alpha.0"
+version = "0.6.2"
 dependencies = [
  "backoff",
  "chrono",
