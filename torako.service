@@ -1,0 +1,14 @@
+[Unit]
+Description=Torako Imageboard Archiver
+Documentation=http://github.com/miyachan/torako
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/torako -c /etc/Torako.toml
+Restart=on-failure
+RestartSec=30
+TimeoutStopSec=180
+
+[Install]
+WantedBy=multi-user.target
