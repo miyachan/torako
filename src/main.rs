@@ -39,8 +39,7 @@ async fn run_async(config: config::Config) -> i32 {
         }
         if !config.request_proxy.is_empty() {
             let rr = AtomicUsize::new(0);
-            let proxies = None
-                .into_iter()
+            let proxies = std::iter::once(None)
                 .filter(|_| !config.request_only_proxy)
                 .chain(config.request_proxy.iter().cloned().map(|p| Some(p)))
                 .collect::<Vec<_>>();
