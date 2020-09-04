@@ -32,7 +32,7 @@ pub struct AsagiBuilder {
     download_media: bool,
     concurrent_downloads: usize,
     inflight_posts: usize,
-    persist_is_fatal: bool,
+    fail_on_save_error: bool,
     media_backpressure: bool,
     truncate_fields: bool,
     sql_set_utc: bool,
@@ -57,7 +57,7 @@ impl Default for AsagiBuilder {
             download_media: true,
             concurrent_downloads: 128,
             inflight_posts: usize::MAX,
-            persist_is_fatal: true,
+            fail_on_save_error: true,
             media_backpressure: false,
             truncate_fields: true,
             sql_set_utc: true,
@@ -154,8 +154,8 @@ impl AsagiBuilder {
         self
     }
 
-    pub fn persist_error_is_fatal(mut self, yes: bool) -> Self {
-        self.persist_is_fatal = yes;
+    pub fn fail_on_save_error(mut self, yes: bool) -> Self {
+        self.fail_on_save_error = yes;
         self
     }
 
@@ -326,7 +326,7 @@ impl AsagiBuilder {
                 Err(_) => panic!("SystemTime before UNIX EPOCH!"),
             },
             old_dir_structure: self.old_dir_structure,
-            persist_fatal: self.persist_is_fatal,
+            fail_on_save_error: self.fail_on_save_error,
             max_concurrent_downloads: self.concurrent_downloads,
             max_inflight_posts: self.inflight_posts,
             media_backpressure: self.media_backpressure,
@@ -406,8 +406,8 @@ impl From<&crate::config::Asagi> for AsagiBuilder {
         if let Some(inflight_posts) = config.inflight_posts {
             builder = builder.max_inflight_posts(inflight_posts.into());
         }
-        if let Some(persist_error_is_fatal) = config.persist_error_is_fatal {
-            builder = builder.persist_error_is_fatal(persist_error_is_fatal);
+        if let Some(fail_on_save_error) = config.fail_on_save_error {
+            builder = builder.fail_on_save_error(fail_on_save_error);
         }
         if let Some(web_unix_group) = &config.web_unix_group {
             builder = builder.media_unix_group(web_unix_group);

@@ -222,7 +222,7 @@ struct AsagiInner {
     max_concurrent_downloads: usize,
     max_inflight_posts: usize,
     media_backpressure: bool,
-    persist_fatal: bool,
+    fail_on_save_error: bool,
     truncate_fields: bool,
     sql_set_utc: bool,
 
@@ -1272,7 +1272,7 @@ impl AsagiInner {
                     "Failed to save data for {} posts [First]: {}/{}/{}: {}",
                     sz, board, thread_no, post_no, err
                 );
-                if !self.persist_fatal {
+                if !self.fail_on_save_error {
                     warn!("Some posts were unable to be archived, however the error isn't being treated as fatal. Some posts may be lost.")
                 }
                 self.failed.store(true, Ordering::SeqCst);
@@ -1324,7 +1324,7 @@ impl AsagiInner {
     }
 
     fn has_failed(&self) -> bool {
-        return self.persist_fatal && self.failed.load(Ordering::Relaxed);
+        return self.fail_on_save_error && self.failed.load(Ordering::Relaxed);
     }
 
     fn truncate_meta_field(&self, v: String) -> String {

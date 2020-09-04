@@ -61,8 +61,8 @@ pub struct Asagi {
     pub old_dir_structure: Option<bool>,
     #[serde(default)]
     pub web_unix_group: Option<String>,
-    #[serde(default)]
-    pub persist_error_is_fatal: Option<bool>,
+    #[serde(default, alias = "persist_error_is_fatal")]
+    pub fail_on_save_error: Option<bool>,
     #[serde(default)]
     pub inflight_posts: Option<NonZeroUsize>,
     #[serde(default)]
