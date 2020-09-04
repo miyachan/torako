@@ -100,7 +100,8 @@ media_path = "/var/lib/torako"
 ## stop Torako. The operator (or system) should restart Torako.
 ## Due to Torako's design is we fail to save a post/thread, then
 ## that thread could be lost if this is set to false.
-#persist_error_is_fatal = true
+## (Default: true)
+#fail_on_save_error = true
 
 ## Inflight Posts. This number denotes how many posts can be buffered in memory
 ## at a time before Asagi rejects accepting more posts. This acts as a form
