@@ -14,6 +14,7 @@ use std::os::unix::fs::PermissionsExt;
 
 use backoff::backoff::Backoff;
 use futures::prelude::*;
+use futures::future::Either;
 use futures::task::AtomicWaker;
 use log::{debug, error, info, warn};
 use mysql_async::{prelude::*, TxOpts};
@@ -210,7 +211,7 @@ struct AsagiInner {
     without_triggers: bool,
     with_stats: bool,
     media_path: Option<PathBuf>,
-    db_pool: mysql_async::Pool,
+    direct_db_pool: mysql_async::Pool,
     asagi_start_time: i64,
     old_dir_structure: bool,
     tmp_dir: PathBuf,
@@ -223,6 +224,7 @@ struct AsagiInner {
     media_backpressure: bool,
     persist_fatal: bool,
     truncate_fields: bool,
+    sql_set_utc: bool,
 
     failed: AtomicBool,
     concurrent_downloads: AtomicUsize,
@@ -267,6 +269,7 @@ impl AsagiTask {
     }
 }
 
+#[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct Asagi {
     inner: Arc<AsagiInner>,
 }
@@ -285,6 +288,16 @@ impl Asagi {
 }
 
 impl AsagiInner {
+    fn get_db_conn(&self) -> impl Future<Output=mysql_async::Result<mysql_async::Conn>> {
+        match self.sql_set_utc {
+            true => Either::Left(self.direct_db_pool.get_conn().and_then(|mut conn| async {
+                conn.query_drop("SET time_zone='+00:00';").await?;
+                Ok(conn)
+            })),
+            false => Either::Right(self.direct_db_pool.get_conn())
+        }
+    }
+
     /// Persist a list posts to the database. This function is
     /// designed to be compatible with the Asagi imageboard archiver.
     ///
@@ -302,7 +315,7 @@ impl AsagiInner {
         let trunc_100 = |v| self.truncate_meta_field(v);
         let scope = async {
             let mut images_to_save = FxHashSet::default();
-            let mut conn = self.db_pool.get_conn().await?;
+            let mut conn = self.get_db_conn().await?;
             while all_posts.len() > 0 {
                 let save_start = Instant::now();
                 let board = all_posts[0].board.clone();
@@ -941,7 +954,7 @@ impl AsagiInner {
             .into_iter()
             .map(|h| (String::from(h.hash.as_ref()), h))
             .collect::<FxHashMap<_, _>>();
-        let mut conn = self.db_pool.get_conn().await?;
+        let mut conn = self.get_db_conn().await?;
         Ok(conn
             .exec_map(
                 stmt.as_str(),

@@ -161,3 +161,15 @@ compute_stats = false
 ## them.
 #truncate_fields = false
 
+## You may experience issue with the TIMESTAMP field in the boards column
+## if your local MySQL install's timezone is not set to UTC. It is good
+## practive to ensure your database install's timezone is UTC, but if it's
+## not certain timestamps may cause Torako to crash if MySQL isn't set to UTC
+##
+## Torako will always try to use utc where possible (other than in situations
+## where backwards compat requires something different), however for databases
+## like MySQL, UTC mode must be set explictly. This can be safely disabled
+## if your database is already in UTC.
+## (Default: true)
+#sql_set_utc = true
+

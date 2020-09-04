@@ -35,6 +35,7 @@ pub struct AsagiBuilder {
     persist_is_fatal: bool,
     media_backpressure: bool,
     truncate_fields: bool,
+    sql_set_utc: bool,
 }
 
 impl Default for AsagiBuilder {
@@ -59,6 +60,7 @@ impl Default for AsagiBuilder {
             persist_is_fatal: true,
             media_backpressure: false,
             truncate_fields: true,
+            sql_set_utc: true,
         }
     }
 }
@@ -164,6 +166,11 @@ impl AsagiBuilder {
 
     pub fn truncate_fields(mut self, yes: bool) -> Self {
         self.truncate_fields = yes;
+        self
+    }
+
+    pub fn sql_set_utc(mut self, yes: bool) -> Self {
+        self.sql_set_utc = yes;
         self
     }
 
@@ -313,7 +320,7 @@ impl AsagiBuilder {
             without_triggers: self.without_triggers,
             media_path: self.media_path,
             with_stats: self.with_stats,
-            db_pool: pool,
+            direct_db_pool: pool,
             asagi_start_time: match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
                 Ok(n) => n.as_secs() as i64,
                 Err(_) => panic!("SystemTime before UNIX EPOCH!"),
@@ -323,6 +330,7 @@ impl AsagiBuilder {
             max_concurrent_downloads: self.concurrent_downloads,
             max_inflight_posts: self.inflight_posts,
             media_backpressure: self.media_backpressure,
+            sql_set_utc: self.sql_set_utc,
             truncate_fields: self.truncate_fields,
             concurrent_downloads: AtomicUsize::new(0),
             download_tokens: tokio::sync::Semaphore::new(self.concurrent_downloads),
@@ -409,6 +417,9 @@ impl From<&crate::config::Asagi> for AsagiBuilder {
         }
         if let Some(truncate_fields) = config.database.truncate_fields {
             builder = builder.truncate_fields(truncate_fields);
+        }
+        if let Some(sql_set_utc) = config.database.sql_set_utc {
+            builder = builder.sql_set_utc(sql_set_utc);
         }
 
         builder

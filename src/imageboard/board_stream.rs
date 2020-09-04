@@ -197,6 +197,7 @@ impl Metrics {
     }
 }
 
+#[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct BoardStream {
     client: reqwest::Client,
     host: String,

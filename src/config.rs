@@ -83,4 +83,6 @@ pub struct AsagiDatabase {
     pub compute_stats: Option<bool>,
     #[serde(default)]
     pub truncate_fields: Option<bool>,
+    #[serde(default)]
+    pub sql_set_utc: Option<bool>,
 }
