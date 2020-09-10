@@ -38,6 +38,8 @@ pub struct AsagiBuilder {
     sql_set_utc: bool,
     mysql_engine: String,
     filesystem_config: Option<crate::config::AsagiFilesystemStorage>,
+    s3_config: Option<crate::config::AsagiS3Storage>,
+    b2_config: Option<crate::config::AsagiB2Storage>,
 }
 
 impl Default for AsagiBuilder {
@@ -65,6 +67,8 @@ impl Default for AsagiBuilder {
             sql_set_utc: true,
             mysql_engine: String::from("InnoDB"),
             filesystem_config: None,
+            s3_config: None,
+            b2_config: None,
         }
     }
 }
@@ -268,11 +272,11 @@ impl AsagiBuilder {
         }
 
         drop(conn);
-
+        let http_client = self.http_client.unwrap_or(reqwest::Client::new());
         let (process_tx, process_rx) = tokio::sync::mpsc::unbounded_channel();
 
         let fs_storage = match &self.filesystem_config {
-            Some(conf) => Some(
+            Some(conf) if !conf.disabled => Some(
                 super::storage::FileSystem::new(
                     &conf.media_path,
                     conf.tmp_dir
@@ -282,11 +286,39 @@ impl AsagiBuilder {
                 )
                 .await?,
             ),
-            None => None,
+            _ => None,
+        };
+
+        let s3_storage = match self.s3_config.as_ref() {
+            Some(conf) if !conf.disabled => Some(
+                super::storage::S3::new(
+                    &conf.access_key_id,
+                    &conf.secret_access_key,
+                    &conf.bucket,
+                    &conf.region,
+                    conf.endpoint.as_ref().map(|x| x.to_string()),
+                    conf.acl.clone(),
+                )
+                .await?,
+            ),
+            _ => None,
+        };
+
+        let b2_storage = match self.b2_config.as_ref() {
+            Some(conf) if !conf.disabled => Some(
+                super::storage::Backblaze::new(
+                    http_client.clone(),
+                    &conf.bucket_id,
+                    &conf.application_key_id,
+                    &conf.application_key,
+                )
+                .await?,
+            ),
+            _ => None,
         };
 
         let asagi = AsagiInner {
-            client: self.http_client.unwrap_or(reqwest::Client::new()),
+            client: http_client,
             media_url: self
                 .media_url
                 .unwrap_or("https://i.4cdn.org/".parse().unwrap()),
@@ -322,6 +354,8 @@ impl AsagiBuilder {
             metrics: Arc::new(super::AsagiMetrics::default()),
             process_tx,
             fs_storage,
+            s3_storage,
+            b2_storage,
         };
 
         let asagi = Arc::new(asagi);
@@ -423,6 +457,19 @@ impl From<&crate::config::Asagi> for AsagiBuilder {
             },
         };
         builder.filesystem_config = filesystem_config;
+        builder.s3_config = config
+            .media_storage
+            .as_ref()
+            .map(|x| x.s3.as_ref())
+            .flatten()
+            .cloned();
+
+        builder.b2_config = config
+            .media_storage
+            .as_ref()
+            .map(|x| x.b2.as_ref())
+            .flatten()
+            .cloned();
 
         builder
     }

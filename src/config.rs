@@ -99,6 +99,10 @@ pub struct AsagiDatabase {
 pub struct AsagiStorage {
     #[serde(default)]
     pub filesystem: Option<AsagiFilesystemStorage>,
+    #[serde(default)]
+    pub s3: Option<AsagiS3Storage>,
+    #[serde(default)]
+    pub b2: Option<AsagiB2Storage>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -110,4 +114,25 @@ pub struct AsagiFilesystemStorage {
     pub tmp_dir: Option<PathBuf>,
     #[serde(default)]
     pub web_unix_group: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct AsagiS3Storage {
+    #[serde(default)]
+    pub disabled: bool,
+    pub access_key_id: String,
+    pub secret_access_key: String,
+    pub region: String,
+    pub endpoint: Option<reqwest::Url>,
+    pub bucket: String,
+    pub acl: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct AsagiB2Storage {
+    #[serde(default)]
+    pub disabled: bool,
+    pub application_key_id: String,
+    pub application_key: String,
+    pub bucket_id: String,
 }

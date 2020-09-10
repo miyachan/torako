@@ -142,6 +142,38 @@ media_path = "/var/lib/torako"
 ## folders will have their group ownership set to this. (Default: None)
 #web_unix_group = "www-data"
 
+#[backend.asagi.media_storage.s3]
+## S3 Access Key ID.
+#access_key_id = "0026149a"
+
+## S3 Secret Access Key
+#secret_access_key = "secret"
+
+## S3 Region
+#region = "us-east-2"
+
+## S3 Endpoint. This can be used to support S3-compatible endpoints.
+#endpoint = "foobar"
+
+## S3 Bucket.
+#bucket = "foo"
+
+## S3 Object ACL. Leaving this blank will not set an ACL.
+#acl = "public-read"
+
+#[backend.asagi.media_storage.b2]
+## Backblaze Native API Storage Engine
+
+## Backblaze Application Key ID. This key will need read & write privileges
+## to the bucket of your choosing.
+#application_key_id = "0026149a"
+
+## Backblaze Application Key.
+#application_key = "secret"
+
+## Backblaze Bucket ID.
+#bucket_id = "44444433333"
+
 [backend.asagi.database]
 ## Database URL. Usually in the format of
 ## mysql://username:password@host/db_name.

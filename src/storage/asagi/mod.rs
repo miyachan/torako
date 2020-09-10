@@ -48,12 +48,22 @@ pub enum Error {
     InvalidUserGroup,
     #[error("Asagi was told to use the old directory structure which doesn't support low thread numbers.")]
     InvalidThreadOldDir,
+    #[error("The image had an invalid content length")]
+    ContentLength,
     #[error("A fatal error occured when trying to archive posts")]
     ArchiveError,
-    #[error("The image already exists")]
-    ImageExists,
     #[error("A database deadlock error occured")]
     Deadlock,
+    #[error("Failed to configure Backblaze: {}", .0)]
+    B2Config(&'static str),
+    #[error("Failed to authorize against Backblaze")]
+    B2Unauthorized,
+    #[error("A fatal error occured trying to communicate with Backblaze: {}", .0)]
+    B2(reqwest::Error),
+    #[error("A fatal error occured trying to communicate with S3: {}", .0)]
+    S3(String),
+    #[error("A fatal error occured trying to communicate with S3: {}", .0)]
+    Rusoto(Box<dyn std::error::Error + Send + Sync>),
     #[error("Invalid Temporary Directory: {:?}", .0)]
     InvalidTempDir(PathBuf),
     #[error("The request was blocked by Cloudflare's bot detection")]
@@ -89,6 +99,22 @@ impl Error {
     fn is_cloudflare(&self) -> bool {
         match self {
             Error::CloudFlareBlocked(_) => true,
+            _ => false,
+        }
+    }
+
+    fn is_s3(&self) -> bool {
+        match self {
+            Error::S3(_) => true,
+            Error::Rusoto(_) => true,
+            _ => false,
+        }
+    }
+
+    fn is_b2(&self) -> bool {
+        match self {
+            Error::B2(_) => true,
+            Error::B2Unauthorized => true,
             _ => false,
         }
     }
@@ -246,6 +272,8 @@ struct AsagiInner {
     process_tx: tokio::sync::mpsc::UnboundedSender<AsagiTask>,
 
     fs_storage: Option<storage::FileSystem>,
+    s3_storage: Option<storage::S3>,
+    b2_storage: Option<storage::Backblaze>,
 }
 
 #[derive(Debug)]
@@ -1036,30 +1064,71 @@ impl AsagiInner {
             }
         };
 
-        let file_sink = match &self.fs_storage {
-            Some(fs) => match fs.open(&filename).await {
-                Ok(f) => Some(f),
-                Err(Error::ImageExists) => None,
-                Err(err) => Err(err)?,
-            },
-            None => None,
+        let fs_download = match self.fs_storage.as_ref() {
+            Some(fs) => !fs.exists(&filename).await?,
+            None => false,
         };
 
-        let should_download = file_sink.is_some();
+        let s3_download = match self.s3_storage.as_ref() {
+            Some(fs) => !fs.exists(&filename).await?,
+            None => false,
+        };
+
+        let b2_download = match self.b2_storage.as_ref() {
+            Some(fs) => !fs.exists(&filename).await?,
+            None => false,
+        };
 
         // if !filename.exists() {
-        if should_download {
+        if fs_download || s3_download || b2_download {
             match kind {
                 MediaKind::Thumb => debug!("Downloading media {:?}", url),
                 MediaKind::Image => debug!("Downloading thumb {:?}", url),
             };
             let dl_start = Instant::now();
-            let (sinks, downloaded) = self
+            let dl_req = self
                 .client
                 .get(url)
                 .send()
                 .and_then(|resp| async { resp.error_for_status() })
-                .await?
+                .await?;
+
+            let sz = match dl_req.content_length() {
+                Some(a) => a as usize,
+                None => return Err(Error::ContentLength),
+            };
+
+            let file_sink = match &self.fs_storage {
+                Some(fs) if fs_download => match fs.open(&filename, sz).await {
+                    Ok(f) => Some(f),
+                    Err(err) => Err(err)?,
+                },
+                _ => None,
+            };
+
+            let s3_sink = match &self.s3_storage {
+                Some(fs) if s3_download => match fs.open(&filename, sz).await {
+                    Ok(f) => Some(f),
+                    Err(err) => {
+                        error!("Open failed: {}", err);
+                        Err(err)?
+                    }
+                },
+                _ => None,
+            };
+
+            let b2_sink = match &self.b2_storage {
+                Some(fs) if b2_download => match fs.open(&filename, sz).await {
+                    Ok(f) => Some(f),
+                    Err(err) => {
+                        error!("Open failed: {}", err);
+                        Err(err)?
+                    }
+                },
+                _ => None,
+            };
+
+            let (sinks, downloaded) = dl_req
                 .bytes_stream()
                 .map_err(move |err| match err.status() {
                     Some(reqwest::StatusCode::SERVICE_UNAVAILABLE) => Error::CloudFlareBlocked(err),
@@ -1067,19 +1136,38 @@ impl AsagiInner {
                     Some(reqwest::StatusCode::FORBIDDEN) => Error::CloudFlareBlocked(err),
                     _ => Error::from(err),
                 })
-                .try_fold(((file_sink,), 0), |(mut f, bytes), buf| async move {
-                    if f.0.is_some() {
-                        if let Err(e) = f.0.as_mut().unwrap().write_all(&buf).await {
-                            return Err(Error::from(e));
+                .try_fold(
+                    ((file_sink, s3_sink, b2_sink), 0),
+                    |(mut f, bytes), buf| async move {
+                        if f.0.is_some() {
+                            if let Err(e) = f.0.as_mut().unwrap().write_all(&buf).await {
+                                return Err(Error::from(e));
+                            }
                         }
-                    }
-                    return Ok((f, bytes + buf.len()));
-                })
+                        if f.1.is_some() {
+                            if let Err(e) = f.1.as_mut().unwrap().write_all(&buf).await {
+                                return Err(Error::from(e));
+                            }
+                        }
+                        if f.2.is_some() {
+                            if let Err(e) = f.2.as_mut().unwrap().write_all(&buf).await {
+                                return Err(Error::from(e));
+                            }
+                        }
+                        return Ok((f, bytes + buf.len()));
+                    },
+                )
                 .await?;
 
             if sinks.0.is_some() {
                 sinks.0.unwrap().shutdown().await?;
-            };
+            }
+            if sinks.1.is_some() {
+                sinks.1.unwrap().shutdown().await?;
+            }
+            if sinks.2.is_some() {
+                sinks.2.unwrap().shutdown().await?;
+            }
 
             info!(
                 "Downloaded {} {}/{}. {} bytes. Took {}ms",
@@ -1172,6 +1260,14 @@ impl AsagiInner {
                             tokio::time::delay_for(b).await;
                             continue;
                         }
+                    } else if err.is_s3() {
+                        error!("Uploading media to S3 failed: {}", err);
+                        self.failed.store(true, Ordering::SeqCst);
+                        return Err(err);
+                    } else if err.is_b2() {
+                        error!("Uploading media to B2 failed: {}", err);
+                        self.failed.store(true, Ordering::SeqCst);
+                        return Err(err);
                     }
                     error!("Downloading media failed: {}", err);
                     return Err(err);
@@ -1217,6 +1313,14 @@ impl AsagiInner {
                                         "Downloading media failed, will retry later: {}",
                                         err
                                     ))
+                                } else if err.is_s3() {
+                                    error!("Uploading media to S3 failed: {}", err);
+                                    self.failed.store(true, Ordering::SeqCst);
+                                    futures::future::ready(())
+                                } else if err.is_b2() {
+                                    error!("Uploading media to B2 failed: {}", err);
+                                    self.failed.store(true, Ordering::SeqCst);
+                                    futures::future::ready(())
                                 } else {
                                     futures::future::ready(error!(
                                         "Downloading media failed: {}",

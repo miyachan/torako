@@ -1,4 +1,3 @@
-use futures::prelude::*;
 use std::ffi::OsStr;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -8,6 +7,7 @@ use std::task::{Context, Poll};
 #[cfg(not(target_family = "windows"))]
 use std::os::unix::fs::PermissionsExt;
 
+use futures::prelude::*;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use tokio::io::AsyncWrite;
@@ -107,7 +107,15 @@ impl FileSystem {
 }
 
 impl FileSystem {
-    pub async fn open<T: AsRef<Path>>(&self, filepath: T) -> Result<impl AsyncWrite + Send, Error> {
+    pub async fn exists<T: AsRef<Path>>(&self, filepath: T) -> Result<bool, Error> {
+        Ok(tokio::fs::metadata(filepath).await.is_ok())
+    }
+
+    pub async fn open<T: AsRef<Path>>(
+        &self,
+        filepath: T,
+        _size: usize,
+    ) -> Result<impl AsyncWrite + Send, Error> {
         let filename = self.media_path.join(filepath.as_ref());
         let subdir = filename.parent().unwrap();
 
@@ -137,10 +145,6 @@ impl FileSystem {
                 let _ =
                     nix::unistd::chown(subdir, None, Some(nix::unistd::Gid::from_raw(group.gid())));
             }
-        }
-
-        if tokio::fs::metadata(&filename).await.is_ok() {
-            return Err(Error::ImageExists);
         }
 
         let tempname = self.tmp_dir.join(
