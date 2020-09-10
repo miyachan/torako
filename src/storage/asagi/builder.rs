@@ -33,9 +33,11 @@ pub struct AsagiBuilder {
     concurrent_downloads: usize,
     inflight_posts: usize,
     fail_on_save_error: bool,
+    retries_on_save_error: usize,
     media_backpressure: bool,
     truncate_fields: bool,
     sql_set_utc: bool,
+    mysql_engine: String,
 }
 
 impl Default for AsagiBuilder {
@@ -58,9 +60,11 @@ impl Default for AsagiBuilder {
             concurrent_downloads: 128,
             inflight_posts: usize::MAX,
             fail_on_save_error: true,
+            retries_on_save_error: 0,
             media_backpressure: false,
             truncate_fields: true,
             sql_set_utc: true,
+            mysql_engine: String::from("InnoDB"),
         }
     }
 }
@@ -159,6 +163,11 @@ impl AsagiBuilder {
         self
     }
 
+    pub fn retries_on_save_error(mut self, retries: usize) -> Self {
+        self.retries_on_save_error = retries;
+        self
+    }
+
     pub fn media_backpressure(mut self, yes: bool) -> Self {
         self.media_backpressure = yes;
         self
@@ -171,6 +180,11 @@ impl AsagiBuilder {
 
     pub fn sql_set_utc(mut self, yes: bool) -> Self {
         self.sql_set_utc = yes;
+        self
+    }
+
+    pub fn set_mysql_engine<T: AsRef<str>>(mut self, engine: T) -> Self {
+        self.mysql_engine = String::from(engine.as_ref());
         self
     }
 
@@ -249,7 +263,8 @@ impl AsagiBuilder {
             info!("Creating board table '{}' (if needed)...", board);
             let q = include_str!("boards.sql")
                 .replace("%%BOARD%%", &board)
-                .replace("%%CHARSET%%", &self.mysql_charset);
+                .replace("%%CHARSET%%", &self.mysql_charset)
+                .replace("%%ENGINE%%", &self.mysql_engine);
             conn.query_drop(q).await?;
         }
         info!("Creating triggers (if needed)...");
@@ -259,7 +274,8 @@ impl AsagiBuilder {
                 info!("Creating triggers for table '{}' (if needed)...", board);
                 let q = include_str!("triggers_v2.sql")
                     .replace("%%BOARD%%", &board)
-                    .replace("%%CHARSET%%", &self.mysql_charset);
+                    .replace("%%CHARSET%%", &self.mysql_charset)
+                    .replace("%%ENGINE%%", &self.mysql_engine);
                 conn.query_drop(q).await?;
             }
         } else {
@@ -267,7 +283,8 @@ impl AsagiBuilder {
                 info!("Creating triggers for table '{}' (if needed)...", board);
                 let q = include_str!("triggers.sql")
                     .replace("%%BOARD%%", &board)
-                    .replace("%%CHARSET%%", &self.mysql_charset);
+                    .replace("%%CHARSET%%", &self.mysql_charset)
+                    .replace("%%ENGINE%%", &self.mysql_engine);
                 conn.query_drop(q).await?;
             }
         }
@@ -327,6 +344,7 @@ impl AsagiBuilder {
             },
             old_dir_structure: self.old_dir_structure,
             fail_on_save_error: self.fail_on_save_error,
+            retries_on_save_error: self.retries_on_save_error,
             max_concurrent_downloads: self.concurrent_downloads,
             max_inflight_posts: self.inflight_posts,
             media_backpressure: self.media_backpressure,
@@ -409,6 +427,9 @@ impl From<&crate::config::Asagi> for AsagiBuilder {
         if let Some(fail_on_save_error) = config.fail_on_save_error {
             builder = builder.fail_on_save_error(fail_on_save_error);
         }
+        if let Some(retries_on_save_error) = config.retries_on_save_error {
+            builder = builder.retries_on_save_error(retries_on_save_error);
+        }
         if let Some(web_unix_group) = &config.web_unix_group {
             builder = builder.media_unix_group(web_unix_group);
         }
@@ -420,6 +441,9 @@ impl From<&crate::config::Asagi> for AsagiBuilder {
         }
         if let Some(sql_set_utc) = config.database.sql_set_utc {
             builder = builder.sql_set_utc(sql_set_utc);
+        }
+        if let Some(mysql_engine) = &config.database.mysql_engine {
+            builder = builder.set_mysql_engine(mysql_engine);
         }
 
         builder

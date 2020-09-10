@@ -53,6 +53,21 @@ pub struct Asagi {
     pub media_url: Option<url::Url>,
     #[serde(default)]
     pub thumb_url: Option<url::Url>,
+    #[serde(default, alias = "persist_error_is_fatal")]
+    pub fail_on_save_error: Option<bool>,
+    #[serde(default)]
+    pub retries_on_save_error: Option<usize>,
+    #[serde(default)]
+    pub inflight_posts: Option<NonZeroUsize>,
+    #[serde(default)]
+    pub concurrent_downloads: Option<NonZeroUsize>,
+    #[serde(default)]
+    pub media_backpressure: Option<bool>,
+    #[serde(default)]
+    pub media_storage: Option<AsagiStorage>,
+    pub database: AsagiDatabase,
+
+    // Options kept for backwards compatibility
     #[serde(default)]
     pub media_path: Option<PathBuf>,
     #[serde(default)]
@@ -61,15 +76,6 @@ pub struct Asagi {
     pub old_dir_structure: Option<bool>,
     #[serde(default)]
     pub web_unix_group: Option<String>,
-    #[serde(default, alias = "persist_error_is_fatal")]
-    pub fail_on_save_error: Option<bool>,
-    #[serde(default)]
-    pub inflight_posts: Option<NonZeroUsize>,
-    #[serde(default)]
-    pub concurrent_downloads: Option<NonZeroUsize>,
-    #[serde(default)]
-    pub media_backpressure: Option<bool>,
-    pub database: AsagiDatabase,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -85,4 +91,26 @@ pub struct AsagiDatabase {
     pub truncate_fields: Option<bool>,
     #[serde(default)]
     pub sql_set_utc: Option<bool>,
+    #[serde(default)]
+    pub mysql_engine: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct AsagiStorage {
+    #[serde(default)]
+    pub filesystem: Option<AsagiFilesystemStorage>
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct AsagiFilesystemStorage {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub media_path: Option<PathBuf>,
+    #[serde(default)]
+    pub tmp_dir: Option<PathBuf>,
+    #[serde(default)]
+    pub old_dir_structure: Option<bool>,
+    #[serde(default)]
+    pub web_unix_group: Option<String>,
 }

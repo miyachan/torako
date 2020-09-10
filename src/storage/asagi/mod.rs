@@ -1,6 +1,6 @@
 use std::collections::hash_map::Entry;
 use std::hash::{Hash, Hasher};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
@@ -13,8 +13,8 @@ use std::time::{Duration, Instant};
 use std::os::unix::fs::PermissionsExt;
 
 use backoff::backoff::Backoff;
-use futures::prelude::*;
 use futures::future::Either;
+use futures::prelude::*;
 use futures::task::AtomicWaker;
 use log::{debug, error, info, warn};
 use mysql_async::{prelude::*, TxOpts};
@@ -53,6 +53,10 @@ pub enum Error {
     InvalidThreadOldDir,
     #[error("A fatal error occured when trying to archive posts")]
     ArchiveError,
+    #[error("The image already exists")]
+    ImageExists,
+    #[error("A database deadlock error occured")]
+    Deadlock,
     #[error("Invalid Temporary Directory: {:?}", .0)]
     InvalidTempDir(PathBuf),
     #[error("The request was blocked by Cloudflare's bot detection")]
@@ -93,6 +97,7 @@ impl Error {
     }
 }
 
+#[derive(Eq, PartialEq, Copy, Clone, Debug)]
 enum MediaKind {
     Thumb,
     Image,
@@ -146,6 +151,7 @@ pub struct Metrics {
     pub concurrent_downloads: usize,
     pub inflight_media: usize,
     pub cloudflare_blocked: u64,
+    pub save_errors: u64,
 }
 
 #[derive(Default, Debug)]
@@ -155,6 +161,7 @@ struct AsagiMetrics {
     media: AtomicU64,
     bytes_downloaded: AtomicU64,
     cf_blocked: AtomicU64,
+    save_errors: AtomicU64,
 }
 
 impl AsagiMetrics {
@@ -176,6 +183,10 @@ impl AsagiMetrics {
 
     pub fn incr_cfblocked(&self, count: u64) {
         self.cf_blocked.fetch_add(count, Ordering::Relaxed);
+    }
+
+    pub fn incr_save_error(&self, count: u64) {
+        self.save_errors.fetch_add(count, Ordering::Relaxed);
     }
 }
 
@@ -200,6 +211,7 @@ impl super::MetricsProvider for AsagiMetricsProvider {
                 - self.inner.download_tokens.available_permits(),
             inflight_media: self.inner.inflight_media.load(Ordering::Acquire),
             cloudflare_blocked: self.inner.metrics.cf_blocked.load(Ordering::Acquire),
+            save_errors: self.inner.metrics.save_errors.load(Ordering::Acquire),
         };
         Box::new(m)
     }
@@ -223,6 +235,7 @@ struct AsagiInner {
     max_inflight_posts: usize,
     media_backpressure: bool,
     fail_on_save_error: bool,
+    retries_on_save_error: usize,
     truncate_fields: bool,
     sql_set_utc: bool,
 
@@ -288,13 +301,13 @@ impl Asagi {
 }
 
 impl AsagiInner {
-    fn get_db_conn(&self) -> impl Future<Output=mysql_async::Result<mysql_async::Conn>> {
+    fn get_db_conn(&self) -> impl Future<Output = mysql_async::Result<mysql_async::Conn>> {
         match self.sql_set_utc {
             true => Either::Left(self.direct_db_pool.get_conn().and_then(|mut conn| async {
                 conn.query_drop("SET time_zone='+00:00';").await?;
                 Ok(conn)
             })),
-            false => Either::Right(self.direct_db_pool.get_conn())
+            false => Either::Right(self.direct_db_pool.get_conn()),
         }
     }
 
@@ -345,14 +358,6 @@ impl AsagiInner {
                 let post_range = posts.iter().fold((u64::MAX, u64::MIN), |acc, x| {
                     (acc.0.min(x.no), acc.1.max(x.no))
                 });
-                debug!("Locking range: {:?}", post_range);
-                let interval_lock = self
-                    .boards
-                    .get(&board.to_string())
-                    .unwrap()
-                    .interval_lock
-                    .acquire(post_range)
-                    .await;
 
                 let with_unix_timestamp = self
                     .boards
@@ -413,437 +418,479 @@ impl AsagiInner {
                     }
                 }
                 let posts = posts;
-
+                let mut backoff = backoff::ExponentialBackoff::default();
+                backoff.max_elapsed_time = None;
+                let mut attempts = 0;
                 loop {
+                    debug!("Locking range: {:?}", post_range);
+                    let interval_lock = self
+                        .boards
+                        .get(&board.to_string())
+                        .unwrap()
+                        .interval_lock
+                        .acquire(post_range)
+                        .await;
+
                     let mut tx = conn.start_transaction(TxOpts::default()).await?;
+                    let result = async {
+                        let mut media_map = FxHashMap::default();
+                        let media_params = posts
+                            .iter()
+                            .filter(|p| {
+                                p.has_media()
+                                    && self.without_triggers
+                                    && !(p.is_retransmission || p.deleted)
+                            })
+                            .enumerate()
+                            .filter_map(|(i, post)| {
+                                match media_map.entry(post.md5.clone().unwrap()) {
+                                    Entry::Occupied(_) => return None,
+                                    Entry::Vacant(v) => {
+                                        v.insert(i);
+                                    }
+                                };
+                                let (preview_op, preview_reply) = if post.is_op() {
+                                    (post.preview_orig().clone(), None)
+                                } else {
+                                    (None, post.preview_orig().clone())
+                                };
+                                let values: Box<[mysql_async::Value]> = Box::new([
+                                    post.md5.clone().unwrap().into(),  // media_hash
+                                    post.media_orig().unwrap().into(), // media
+                                    preview_op.into(),                 // preview_op
+                                    preview_reply.into(),              // preview_reply
+                                    1usize.into(),                     // total
+                                ]);
+                                Some(values.into_vec())
+                            })
+                            .flatten()
+                            .collect::<Vec<_>>();
 
-                    let mut media_map = FxHashMap::default();
-                    let media_params = posts
-                        .iter()
-                        .filter(|p| {
-                            p.has_media()
-                                && self.without_triggers
-                                && !(p.is_retransmission || p.deleted)
-                        })
-                        .enumerate()
-                        .filter_map(|(i, post)| {
-                            match media_map.entry(post.md5.clone().unwrap()) {
-                                Entry::Occupied(_) => return None,
-                                Entry::Vacant(v) => {
-                                    v.insert(i);
+                        let id_lowmark = if self.without_triggers && media_params.len() > 0 {
+                            let rows = media_params.len() / 5;
+
+                            /*
+                             * When batch inserting into MySQL, the generated IDs are
+                             * guaranteed to be monotonically increasing for a table
+                             * with an autoincrement ID.
+                             *
+                             * Using this, by having the lowest id (via last_insert_id)
+                             * we can find the generated id for our media_image hash
+                             * by looking up the order it was inserted in, and adding
+                             * the lowest id
+                             */
+                            let media_image_table = format!("INSERT INTO `{}_images` (media_hash, media, preview_op, preview_reply, total) VALUES (?, ?, ?, ?, ?)", &board);
+                            let media_query = std::iter::once(media_image_table.as_str())
+                                .chain((0..(rows - 1)).map(|_| ", (?, ?, ?, ?, ?)"))
+                                .chain(std::iter::once(
+                                    " ON DUPLICATE KEY UPDATE
+                                        media_id = LAST_INSERT_ID(media_id),
+                                        total = (total + 1),
+                                        preview_op = COALESCE(preview_op, VALUES(preview_op)),
+                                        preview_reply = COALESCE(preview_reply, VALUES(preview_reply)),
+                                        media = COALESCE(media, VALUES(media));",
+                                ))
+                                .collect::<String>();
+
+                            let media_results = match tx
+                                .exec_iter(media_query.as_str(), media_params)
+                                .map_err(|err| Error::from(err))
+                                .await
+                            {
+                                Ok(r) => r,
+                                Err(ref err) if err.is_deadlock() => {
+                                    debug!("Hit MySQL deadlock when processing board images on board {}. Retrying...", board);
+                                    return Err(Error::Deadlock);
                                 }
+                                Err(err) => return Err(err),
                             };
-                            let (preview_op, preview_reply) = if post.is_op() {
-                                (post.preview_orig().clone(), None)
-                            } else {
-                                (None, post.preview_orig().clone())
-                            };
-                            let values: Box<[mysql_async::Value]> = Box::new([
-                                post.md5.clone().unwrap().into(),  // media_hash
-                                post.media_orig().unwrap().into(), // media
-                                preview_op.into(),                 // preview_op
-                                preview_reply.into(),              // preview_reply
-                                1usize.into(),                     // total
-                            ]);
-                            Some(values.into_vec())
-                        })
-                        .flatten()
-                        .collect::<Vec<_>>();
 
-                    let id_lowmark = if self.without_triggers && media_params.len() > 0 {
-                        let rows = media_params.len() / 5;
+                            media_results.last_insert_id().unwrap() as usize
+                        } else {
+                            0
+                        };
 
-                        /*
-                         * When batch inserting into MySQL, the generated IDs are
-                         * guaranteed to be monotonically increasing for a table
-                         * with an autoincrement ID.
-                         *
-                         * Using this, by having the lowest id (via last_insert_id)
-                         * we can find the generated id for our media_image hash
-                         * by looking up the order it was inserted in, and adding
-                         * the lowest id
-                         */
-                        let media_image_table = format!("INSERT INTO `{}_images` (media_hash, media, preview_op, preview_reply, total) VALUES (?, ?, ?, ?, ?)", &board);
-                        let media_query = std::iter::once(media_image_table.as_str())
-                            .chain((0..(rows - 1)).map(|_| ", (?, ?, ?, ?, ?)"))
-                            .chain(std::iter::once(
-                                " ON DUPLICATE KEY UPDATE
-                            media_id = LAST_INSERT_ID(media_id),
-                            total = (total + 1),
-                            preview_op = COALESCE(preview_op, VALUES(preview_op)),
-                            preview_reply = COALESCE(preview_reply, VALUES(preview_reply)),
-                            media = COALESCE(media, VALUES(media));",
-                            ))
+                        let mut threads: FxHashMap<u64, Thread> = FxHashMap::default();
+                        let mut daily: FxHashMap<u64, stats::Daily> = FxHashMap::default();
+                        let mut users: FxHashMap<String, stats::User> = FxHashMap::default();
+                        let mut media_ids: FxHashSet<MediaDescriptor> = FxHashSet::default();
+
+                        let rows = posts.len();
+                        let board_values = posts
+                            .iter()
+                            .map(|post| {
+                                if self.boards.get(post.board.as_ref()).is_none() {
+                                    panic!(
+                                "Received board {} without being configured for it. This is fatal.",
+                                post.board
+                            );
+                                }
+                                if self.without_triggers
+                                    && !(post.deleted || post.is_retransmission)
+                                {
+                                    match threads.entry(post.thread_no()) {
+                                        Entry::Occupied(mut v) => v.get_mut().update(&post),
+                                        Entry::Vacant(v) => {
+                                            let mut t = Thread::new(post.thread_no());
+                                            t.update(&post);
+                                            v.insert(t);
+                                        }
+                                    };
+                                    if self.with_stats {
+                                        let day = ((post.nyc_timestamp() / 86400) * 86400) as u64;
+                                        match daily.entry(day) {
+                                            Entry::Occupied(mut v) => v.get_mut().update(&post),
+                                            Entry::Vacant(v) => {
+                                                let mut d = stats::Daily::new(day);
+                                                d.update(&post);
+                                                v.insert(d);
+                                            }
+                                        };
+
+                                        if let Some(user) = post.poster_nametrip() {
+                                            match users.entry(user) {
+                                                Entry::Occupied(mut v) => v.get_mut().update(&post),
+                                                Entry::Vacant(v) => {
+                                                    let username = post.name.clone();
+                                                    let trip = post.trip.clone();
+                                                    let mut u = stats::User::new(username, trip);
+                                                    u.update(&post);
+                                                    v.insert(u);
+                                                }
+                                            };
+                                        }
+                                    }
+                                }
+
+                                if post.has_media() {
+                                    let preview = match self.old_dir_structure {
+                                        true => Some(post.preview_orig().as_ref().unwrap().clone()),
+                                        false => None,
+                                    };
+                                    media_ids.insert(MediaDescriptor::new(&post, preview));
+                                }
+
+                                let media_id = post
+                                    .md5
+                                    .as_ref()
+                                    .map(|md5| media_map.get(md5))
+                                    .flatten()
+                                    .map(|idx| idx + id_lowmark)
+                                    .unwrap_or(0);
+
+                                // have to move these values out
+                                // to appease the borrow checker
+                                let poster_name =
+                                    mysql_async::Value::from(post.poster_name().map(trunc_100));
+                                let post_title =
+                                    mysql_async::Value::from(post.title().map(trunc_100));
+                                let poster_email = mysql_async::Value::from(
+                                    post.email.as_ref().cloned().map(trunc_100),
+                                );
+                                let poster_hash = mysql_async::Value::from(post.poster_hash());
+                                let poster_country =
+                                    mysql_async::Value::from(post.poster_country());
+                                let media_orig = mysql_async::Value::from(post.media_orig());
+                                let capcode = mysql_async::Value::from(post.short_capcode());
+                                let exif = mysql_async::Value::from(post.exif());
+                                let comment = mysql_async::Value::from(post.comment());
+                                let deleted_at =
+                                    mysql_async::Value::from(post.deleted_at.unwrap_or(0));
+                                let unix_timestamp = match post.datetime() {
+                                    Some(d) => d,
+                                    None => chrono::NaiveDateTime::from_timestamp(1, 0),
+                                };
+                                let values: Box<[mysql_async::Value]> = Box::new([
+                                    post.no.into(),               // num
+                                    0usize.into(),                // subnum,
+                                    post.thread_no().into(),      // thread_num,
+                                    post.is_op().into(),          // op,
+                                    post.nyc_timestamp().into(),  // timestamp,
+                                    deleted_at,                   // timestamp_expired
+                                    post.preview_orig().into(),   // preview_orig,
+                                    post.tn_w.into(),             // preview_w
+                                    post.tn_h.into(),             // preview_h,
+                                    media_id.into(),              // media_id
+                                    post.media_filename().into(), // media_filename,
+                                    post.w.into(),                // media_w,
+                                    post.h.into(),                // media_h,
+                                    post.fsize.into(),            // media_size,
+                                    post.md5.as_ref().into(),     // media_hash,
+                                    media_orig,                   // media_orig,
+                                    post.spoiler.into(),          // spoiler,
+                                    post.deleted.into(),          // deleted,
+                                    capcode,                      // capcode,
+                                    poster_email,                 // email,
+                                    poster_name,                  // name
+                                    post.trip.as_ref().into(),    // trip
+                                    post_title,                   // title
+                                    comment,                      // comment
+                                    mysql_async::Value::NULL,     // delpass,
+                                    post.sticky.into(),           // sticky
+                                    post.closed.into(),           // locked
+                                    poster_hash,                  // poster_hash,
+                                    poster_country,               // poster_country,
+                                    exif,                         // exif
+                                    unix_timestamp.into(),        // unix_timestamp
+                                ]);
+                                match with_unix_timestamp {
+                                    true => values.into_vec(),
+                                    false => {
+                                        let mut v = values.into_vec();
+                                        v.truncate(v.len() - 1);
+                                        v
+                                    }
+                                }
+                            })
+                            .flatten()
+                            .collect::<Vec<_>>();
+
+                        let board_table = match with_unix_timestamp {
+                            true => format!("INSERT INTO `{}` (num, subnum, thread_num, op, timestamp, timestamp_expired, preview_orig,
+                                                preview_w, preview_h, media_id, media_filename, media_w, media_h, media_size,
+                                                media_hash, media_orig, spoiler, deleted, capcode, email, name, trip, title, comment,
+                                                delpass, sticky, locked, poster_hash, poster_country, exif, unix_timestamp
+                                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", &board),
+                            false => format!("INSERT INTO `{}` (num, subnum, thread_num, op, timestamp, timestamp_expired, preview_orig,
+                                                preview_w, preview_h, media_id, media_filename, media_w, media_h, media_size,
+                                                media_hash, media_orig, spoiler, deleted, capcode, email, name, trip, title, comment,
+                                                delpass, sticky, locked, poster_hash, poster_country, exif
+                                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", &board),
+                        };
+                        let placeholders = match with_unix_timestamp {
+                            true => ", (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            false => ", (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        };
+                        let board_query = std::iter::once(board_table.as_str())
+                            .chain((0..(rows - 1)).map(|_| placeholders))
+                            .chain(
+                                std::iter::once(
+                                    " ON DUPLICATE KEY UPDATE
+                                    deleted = VALUES(deleted),
+                                    timestamp_expired = COALESCE(NULLIF(VALUES(timestamp_expired), 0), timestamp_expired),
+                                    sticky = COALESCE(VALUES(sticky), sticky),
+                                    locked = COALESCE(VALUES(locked), locked),
+                                    comment = COALESCE(VALUES(comment), comment),
+                                    exif = COALESCE(VALUES(exif), exif);
+                                ",
+                                ),
+                            )
                             .collect::<String>();
 
-                        let media_results = match tx
-                            .exec_iter(media_query.as_str(), media_params)
+                        match tx
+                            .exec_drop(board_query.as_str(), board_values)
                             .map_err(|err| Error::from(err))
                             .await
                         {
                             Ok(r) => r,
-                            Err(ref err) if err.is_deadlock() => {
-                                debug!("Hit MySQL deadlock when processing board images on board {}. Retrying...", board);
-                                tx.rollback().await?;
-                                sleep_jitter(5, 50).await;
-                                continue;
-
+                            Err(err) => match err.is_deadlock() {
+                                true => {
+                                    debug!("Hit MySQL deadlock when processing board posts on board {}. Retrying...", board);
+                                    return Err(Error::Deadlock);
+                                }
+                                false => return Err(err),
                             },
-                            Err(err) => return Err(err),
                         };
 
-                        media_results.last_insert_id().unwrap() as usize
-                    } else {
-                        0
-                    };
+                        if self.without_triggers {
+                            // Update threads
+                            if threads.len() > 0 {
+                                let rows = threads.len();
+                                let thread_table = format!("INSERT INTO `{}_threads` (thread_num, time_op, time_last, time_bump, time_ghost, time_ghost_bump, time_last_modified, nreplies, nimages, sticky, locked)
+                                    VALUES (?, COALESCE(?, 0), ?, ?, ?, ?, ?, ?, ?, COALESCE(?, false), COALESCE(?, false))", &board);
+                                let thread_query = std::iter::once(thread_table.as_str())
+                                    .chain((0..(rows - 1)).map(|_| ", (?, COALESCE(?, 0), ?, ?, ?, ?, ?, ?, ?, COALESCE(?, false), COALESCE(?, false))"))
+                                    .chain(
+                                        std::iter::once(
+                                            " ON DUPLICATE KEY UPDATE
+                                            time_op = GREATEST(time_op, VALUES(time_op)),
+                                            sticky = COALESCE(VALUES(sticky), sticky),
+                                            locked = COALESCE(VALUES(locked), locked),
+                                            time_last = GREATEST(time_last, VALUES(time_last)),
+                                            time_last_modified = GREATEST(time_last_modified, VALUES(time_last_modified)),
+                                            time_bump = GREATEST(time_bump, VALUES(time_bump)),
+                                            nreplies = VALUES(nreplies) + nreplies,
+                                            nimages = VALUES(nimages) + nimages;
+                                        ",
+                                        )
+                                    )
+                                    .collect::<String>();
+                                            let thread_values = threads
+                                                .into_iter()
+                                                .map(|(_, thread)| {
+                                                    let values: Box<[mysql_async::Value]> = Box::new([
+                                                        thread.thread_num.into(),         // thread_num
+                                                        thread.time_op.into(),            // time_op
+                                                        thread.time_last.into(),          // time_last,
+                                                        thread.time_bump.into(),          // time_bump,
+                                                        thread.time_ghost.into(),         // time_ghost,
+                                                        thread.time_ghost_bump.into(),    // time_ghost_bump,
+                                                        thread.time_last_modified.into(), // time_last_modified
+                                                        thread.n_replies.into(),          // nreplies,
+                                                        thread.n_images.into(),           // nimages
+                                                        thread.sticky.into(),             // sticky,
+                                                        thread.locked.into(),             // locked
+                                                    ]);
+                                                    values.into_vec()
+                                                })
+                                                .flatten()
+                                                .collect::<Vec<_>>();
 
-                    let mut threads: FxHashMap<u64, Thread> = FxHashMap::default();
-                    let mut daily: FxHashMap<u64, stats::Daily> = FxHashMap::default();
-                    let mut users: FxHashMap<String, stats::User> = FxHashMap::default();
-                    let mut media_ids: FxHashSet<MediaDescriptor> = FxHashSet::default();
-
-                    let rows = posts.len();
-                    let board_values = posts
-                        .iter()
-                        .map(|post| {
-                            if self.boards.get(post.board.as_ref()).is_none() {
-                                panic!(
-                                "Received board {} without being configured for it. This is fatal.",
-                                post.board
-                            );
-                            }
-                            if self.without_triggers && !(post.deleted || post.is_retransmission) {
-                                match threads.entry(post.thread_no()) {
-                                    Entry::Occupied(mut v) => v.get_mut().update(&post),
-                                    Entry::Vacant(v) => {
-                                        let mut t = Thread::new(post.thread_no());
-                                        t.update(&post);
-                                        v.insert(t);
-                                    }
-                                };
-                                if self.with_stats {
-                                    let day = ((post.nyc_timestamp() / 86400) * 86400) as u64;
-                                    match daily.entry(day) {
-                                        Entry::Occupied(mut v) => v.get_mut().update(&post),
-                                        Entry::Vacant(v) => {
-                                            let mut d = stats::Daily::new(day);
-                                            d.update(&post);
-                                            v.insert(d);
+                                            tx.exec_drop(thread_query.as_str(), thread_values).await?;
                                         }
-                                    };
 
-                                    if let Some(user) = post.poster_nametrip() {
-                                        match users.entry(user) {
-                                            Entry::Occupied(mut v) => v.get_mut().update(&post),
-                                            Entry::Vacant(v) => {
-                                                let username = post.name.clone();
-                                                let trip = post.trip.clone();
-                                                let mut u = stats::User::new(username, trip);
-                                                u.update(&post);
-                                                v.insert(u);
+                                if self.with_stats {
+                                    // Update daily stats
+                                    if daily.len() > 0 {
+                                        let rows = daily.len();
+                                        let daily_table = format!(
+                                            "INSERT INTO `{}_daily` (day, posts, images, sage, anons, trips, names)
+                                        VALUES (?, ?, ?, ?, ?, ?, ?)",
+                                            &board
+                                        );
+                                        let daily_query = std::iter::once(daily_table.as_str())
+                                            .chain((0..(rows - 1)).map(|_| ", (?, ?, ?, ?, ?, ?, ?)"))
+                                            .chain(std::iter::once(
+                                                " ON DUPLICATE KEY UPDATE
+                                                    posts = VALUES(posts) + posts,
+                                                    images = VALUES(images) + images,
+                                                    sage = VALUES(sage) + sage,
+                                                    anons = VALUES(anons) + anons,
+                                                    trips = VALUES(trips) + trips,
+                                                    names = VALUES(names) + names;
+                                                ",
+                                            ))
+                                            .collect::<String>();
+
+                                    let daily_values = daily
+                                        .into_iter()
+                                        .map(|(_, daily)| {
+                                            let values: Box<[mysql_async::Value]> = Box::new([
+                                                daily.day.into(),    // day
+                                                daily.posts.into(),  // posts
+                                                daily.images.into(), // images,
+                                                daily.sage.into(),   // sage,
+                                                daily.anons.into(),  // anons,
+                                                daily.trips.into(),  // trips,
+                                                daily.names.into(),  // names
+                                            ]);
+                                            values.into_vec()
+                                        })
+                                        .flatten()
+                                        .collect::<Vec<_>>();
+
+                                    match tx
+                                        .exec_drop(daily_query.as_str(), daily_values)
+                                        .map_err(|err| Error::from(err))
+                                        .await
+                                    {
+                                        Ok(r) => r,
+                                        Err(err) => match err.is_deadlock() {
+                                            true => {
+                                                debug!("Hit MySQL deadlock when processing board daily on board {}. Retrying...", board);
+                                                return Err(Error::Deadlock);
                                             }
-                                        };
-                                    }
+                                            false => return Err(err),
+                                        },
+                                    };
+                                }
+
+                                if users.len() > 0 {
+                                    let rows = users.len();
+                                    let users_table = format!(
+                                        "INSERT INTO `{}_users` (name, trip, firstseen, postcount)
+                                        VALUES (?, ?, ?, ?)",
+                                                        &board
+                                    );
+                                    let users_query = std::iter::once(users_table.as_str())
+                                        .chain((0..(rows - 1)).map(|_| ", (?, ?, ?, ?)"))
+                                        .chain(std::iter::once(
+                                            " ON DUPLICATE KEY UPDATE
+                                            firstseen = LEAST(VALUES(firstseen), firstseen),
+                                            postcount = VALUES(postcount) + postcount;
+                                        ",
+                                        ))
+                                        .collect::<String>();
+                                    let users_values = users
+                                        .into_iter()
+                                        .map(|(_, user)| {
+                                            let values: Box<[mysql_async::Value]> = Box::new([
+                                                Some(user.name).map(trunc_100).into(), // name
+                                                user.trip.into(),                      // trip
+                                                user.first_seen.into(),                // firstseen,
+                                                user.post_count.into(),                // postcount,
+                                            ]);
+                                            values.into_vec()
+                                        })
+                                        .flatten()
+                                        .collect::<Vec<_>>();
+
+                                    match tx
+                                        .exec_drop(users_query.as_str(), users_values)
+                                        .map_err(|err| Error::from(err))
+                                        .await
+                                    {
+                                        Ok(r) => r,
+                                        Err(err) => match err.is_deadlock() {
+                                            true => {
+                                                debug!("Hit MySQL deadlock when processing board users on board {}. Retrying...", board);
+                                                return Err(Error::Deadlock);
+                                            }
+                                            false => return Err(err),
+                                        },
+                                    };
                                 }
                             }
+                        }
 
-                            if post.has_media() {
-                                let preview = match self.old_dir_structure {
-                                    true => Some(post.preview_orig().as_ref().unwrap().clone()),
-                                    false => None,
-                                };
-                                media_ids.insert(MediaDescriptor::new(&post, preview));
-                            }
-
-                            let media_id = post
-                                .md5
-                                .as_ref()
-                                .map(|md5| media_map.get(md5))
-                                .flatten()
-                                .map(|idx| idx + id_lowmark)
-                                .unwrap_or(0);
-
-                            // have to move these values out
-                            // to appease the borrow checker
-                            let poster_name =
-                                mysql_async::Value::from(post.poster_name().map(trunc_100));
-                            let post_title = mysql_async::Value::from(post.title().map(trunc_100));
-                            let poster_email = mysql_async::Value::from(
-                                post.email.as_ref().cloned().map(trunc_100),
+                        Ok((rows, media_ids))
+                    }.await;
+                    let result = match result {
+                        Ok(x) => tx.commit().await.map_err(|err| Error::from(err)).map(|_| x),
+                        Err(err) => {
+                            let _ = tx.rollback().await;
+                            Err(err)
+                        }
+                    };
+                    drop(interval_lock);
+                    match result {
+                        Ok((rows, media_ids)) => {
+                            debug!(
+                                "Committed data for {} posts (board: {}) to MySQL. Took {}ms",
+                                rows,
+                                board,
+                                save_start.elapsed().as_millis(),
                             );
-                            let poster_hash = mysql_async::Value::from(post.poster_hash());
-                            let poster_country = mysql_async::Value::from(post.poster_country());
-                            let media_orig = mysql_async::Value::from(post.media_orig());
-                            let capcode = mysql_async::Value::from(post.short_capcode());
-                            let exif = mysql_async::Value::from(post.exif());
-                            let comment = mysql_async::Value::from(post.comment());
-                            let deleted_at = mysql_async::Value::from(post.deleted_at.unwrap_or(0));
-                            let unix_timestamp = match post.datetime() {
-                                Some(d) => d,
-                                None => chrono::NaiveDateTime::from_timestamp(1, 0),
-                            };
-                            let values: Box<[mysql_async::Value]> = Box::new([
-                                post.no.into(),               // num
-                                0usize.into(),                // subnum,
-                                post.thread_no().into(),      // thread_num,
-                                post.is_op().into(),          // op,
-                                post.nyc_timestamp().into(),  // timestamp,
-                                deleted_at,                   // timestamp_expired
-                                post.preview_orig().into(),   // preview_orig,
-                                post.tn_w.into(),             // preview_w
-                                post.tn_h.into(),             // preview_h,
-                                media_id.into(),              // media_id
-                                post.media_filename().into(), // media_filename,
-                                post.w.into(),                // media_w,
-                                post.h.into(),                // media_h,
-                                post.fsize.into(),            // media_size,
-                                post.md5.as_ref().into(),     // media_hash,
-                                media_orig,                   // media_orig,
-                                post.spoiler.into(),          // spoiler,
-                                post.deleted.into(),          // deleted,
-                                capcode,                      // capcode,
-                                poster_email,                 // email,
-                                poster_name,                  // name
-                                post.trip.as_ref().into(),    // trip
-                                post_title,                   // title
-                                comment,                      // comment
-                                mysql_async::Value::NULL,     // delpass,
-                                post.sticky.into(),           // sticky
-                                post.closed.into(),           // locked
-                                poster_hash,                  // poster_hash,
-                                poster_country,               // poster_country,
-                                exif,                         // exif
-                                unix_timestamp.into(),        // unix_timestamp
-                            ]);
-                            match with_unix_timestamp {
-                                true => values.into_vec(),
-                                false => {
-                                    let mut v = values.into_vec();
-                                    v.truncate(v.len() - 1);
-                                    v
-                                }
-                            }
-                        })
-                        .flatten()
-                        .collect::<Vec<_>>();
-
-                    let board_table = match with_unix_timestamp {
-                        true => format!("INSERT INTO `{}` (num, subnum, thread_num, op, timestamp, timestamp_expired, preview_orig,
-                                            preview_w, preview_h, media_id, media_filename, media_w, media_h, media_size,
-                                            media_hash, media_orig, spoiler, deleted, capcode, email, name, trip, title, comment,
-                                            delpass, sticky, locked, poster_hash, poster_country, exif, unix_timestamp
-                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", &board),
-                        false => format!("INSERT INTO `{}` (num, subnum, thread_num, op, timestamp, timestamp_expired, preview_orig,
-                                            preview_w, preview_h, media_id, media_filename, media_w, media_h, media_size,
-                                            media_hash, media_orig, spoiler, deleted, capcode, email, name, trip, title, comment,
-                                            delpass, sticky, locked, poster_hash, poster_country, exif
-                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", &board),
-                    };
-                    let placeholders = match with_unix_timestamp {
-                        true => ", (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                        false => ", (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    };
-                    let board_query = std::iter::once(board_table.as_str())
-                .chain((0..(rows - 1)).map(|_| placeholders))
-                .chain(
-                    std::iter::once(
-                        " ON DUPLICATE KEY UPDATE
-                        deleted = VALUES(deleted),
-                        timestamp_expired = COALESCE(NULLIF(VALUES(timestamp_expired), 0), timestamp_expired),
-                        sticky = COALESCE(VALUES(sticky), sticky),
-                        locked = COALESCE(VALUES(locked), locked),
-                        comment = COALESCE(VALUES(comment), comment),
-                        exif = COALESCE(VALUES(exif), exif);
-                       ",
-                    ),
-                )
-                .collect::<String>();
-
-                    match tx
-                        .exec_drop(board_query.as_str(), board_values)
-                        .map_err(|err| Error::from(err))
-                        .await
-                    {
-                        Ok(r) => r,
-                        Err(err) => match err.is_deadlock() {
-                            true => {
-                                debug!("Hit MySQL deadlock when processing board posts on board {}. Retrying...", board);
-                                tx.rollback().await?;
+                            images_to_save.extend(media_ids);
+                            self.metrics.incr_posts(rows as u64);
+                            self.notify_post(rows);
+                            processed_posts -= rows;
+                        }
+                        Err(err) => match err {
+                            Error::Deadlock => {
                                 sleep_jitter(5, 50).await;
                                 continue;
                             }
-                            false => return Err(err),
+                            err => {
+                                if attempts >= self.retries_on_save_error {
+                                    return Err(err);
+                                } else {
+                                    let board = posts[0].board.clone();
+                                    let thread_no = posts[0].thread_no();
+                                    let post_no = posts[0].no;
+                                    error!(
+                                        "Failed to save posts, will retry [First]: {}/{}/{}: {}",
+                                        board, thread_no, post_no, err
+                                    );
+                                    attempts += 1;
+                                    if let Some(b) = backoff.next_backoff() {
+                                        tokio::time::delay_for(b).await;
+                                    }
+                                    continue;
+                                }
+                            }
                         },
-                    };
-
-                    if self.without_triggers {
-                        // Update threads
-                        if threads.len() > 0 {
-                            let rows = threads.len();
-                            let thread_table = format!("INSERT INTO `{}_threads` (thread_num, time_op, time_last, time_bump, time_ghost, time_ghost_bump, time_last_modified, nreplies, nimages, sticky, locked)
-                    VALUES (?, COALESCE(?, 0), ?, ?, ?, ?, ?, ?, ?, COALESCE(?, false), COALESCE(?, false))", &board);
-                            let thread_query = std::iter::once(thread_table.as_str())
-                        .chain((0..(rows - 1)).map(|_| ", (?, COALESCE(?, 0), ?, ?, ?, ?, ?, ?, ?, COALESCE(?, false), COALESCE(?, false))"))
-                        .chain(
-                            std::iter::once(
-                                " ON DUPLICATE KEY UPDATE
-                                time_op = GREATEST(time_op, VALUES(time_op)),
-                                sticky = COALESCE(VALUES(sticky), sticky),
-                                locked = COALESCE(VALUES(locked), locked),
-                                time_last = GREATEST(time_last, VALUES(time_last)),
-                                time_last_modified = GREATEST(time_last_modified, VALUES(time_last_modified)),
-                                time_bump = GREATEST(time_bump, VALUES(time_bump)),
-                                nreplies = VALUES(nreplies) + nreplies,
-                                nimages = VALUES(nimages) + nimages;
-                            ",
-                            )
-                        )
-                        .collect::<String>();
-                            let thread_values = threads
-                                .into_iter()
-                                .map(|(_, thread)| {
-                                    let values: Box<[mysql_async::Value]> = Box::new([
-                                        thread.thread_num.into(),         // thread_num
-                                        thread.time_op.into(),            // time_op
-                                        thread.time_last.into(),          // time_last,
-                                        thread.time_bump.into(),          // time_bump,
-                                        thread.time_ghost.into(),         // time_ghost,
-                                        thread.time_ghost_bump.into(),    // time_ghost_bump,
-                                        thread.time_last_modified.into(), // time_last_modified
-                                        thread.n_replies.into(),          // nreplies,
-                                        thread.n_images.into(),           // nimages
-                                        thread.sticky.into(),             // sticky,
-                                        thread.locked.into(),             // locked
-                                    ]);
-                                    values.into_vec()
-                                })
-                                .flatten()
-                                .collect::<Vec<_>>();
-
-                            tx.exec_drop(thread_query.as_str(), thread_values).await?;
-                        }
-
-                        if self.with_stats {
-                            // Update daily stats
-                            if daily.len() > 0 {
-                                let rows = daily.len();
-                                let daily_table = format!(
-                            "INSERT INTO `{}_daily` (day, posts, images, sage, anons, trips, names)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)",
-                            &board
-                        );
-                                let daily_query = std::iter::once(daily_table.as_str())
-                                    .chain((0..(rows - 1)).map(|_| ", (?, ?, ?, ?, ?, ?, ?)"))
-                                    .chain(std::iter::once(
-                                        " ON DUPLICATE KEY UPDATE
-                                    posts = VALUES(posts) + posts,
-                                    images = VALUES(images) + images,
-                                    sage = VALUES(sage) + sage,
-                                    anons = VALUES(anons) + anons,
-                                    trips = VALUES(trips) + trips,
-                                    names = VALUES(names) + names;
-                                ",
-                                    ))
-                                    .collect::<String>();
-
-                                let daily_values = daily
-                                    .into_iter()
-                                    .map(|(_, daily)| {
-                                        let values: Box<[mysql_async::Value]> = Box::new([
-                                            daily.day.into(),    // day
-                                            daily.posts.into(),  // posts
-                                            daily.images.into(), // images,
-                                            daily.sage.into(),   // sage,
-                                            daily.anons.into(),  // anons,
-                                            daily.trips.into(),  // trips,
-                                            daily.names.into(),  // names
-                                        ]);
-                                        values.into_vec()
-                                    })
-                                    .flatten()
-                                    .collect::<Vec<_>>();
-
-                                match tx
-                                    .exec_drop(daily_query.as_str(), daily_values)
-                                    .map_err(|err| Error::from(err))
-                                    .await
-                                {
-                                    Ok(r) => r,
-                                    Err(err) => match err.is_deadlock() {
-                                        true => {
-                                            debug!("Hit MySQL deadlock when processing board daily on board {}. Retrying...", board);
-                                            tx.rollback().await?;
-                                            sleep_jitter(5, 50).await;
-                                            continue;
-                                        }
-                                        false => return Err(err),
-                                    },
-                                };
-                            }
-
-                            if users.len() > 0 {
-                                let rows = users.len();
-                                let users_table = format!(
-                                    "INSERT INTO `{}_users` (name, trip, firstseen, postcount)
-                        VALUES (?, ?, ?, ?)",
-                                    &board
-                                );
-                                let users_query = std::iter::once(users_table.as_str())
-                                    .chain((0..(rows - 1)).map(|_| ", (?, ?, ?, ?)"))
-                                    .chain(std::iter::once(
-                                        " ON DUPLICATE KEY UPDATE
-                                    firstseen = LEAST(VALUES(firstseen), firstseen),
-                                    postcount = VALUES(postcount) + postcount;
-                                ",
-                                    ))
-                                    .collect::<String>();
-                                let users_values = users
-                                    .into_iter()
-                                    .map(|(_, user)| {
-                                        let values: Box<[mysql_async::Value]> = Box::new([
-                                            Some(user.name).map(trunc_100).into(), // name
-                                            user.trip.into(),                      // trip
-                                            user.first_seen.into(),                // firstseen,
-                                            user.post_count.into(),                // postcount,
-                                        ]);
-                                        values.into_vec()
-                                    })
-                                    .flatten()
-                                    .collect::<Vec<_>>();
-
-                                match tx
-                                    .exec_drop(users_query.as_str(), users_values)
-                                    .map_err(|err| Error::from(err))
-                                    .await
-                                {
-                                    Ok(r) => r,
-                                    Err(err) => match err.is_deadlock() {
-                                        true => {
-                                            debug!("Hit MySQL deadlock when processing board users on board {}. Retrying...", board);
-                                            tx.rollback().await?;
-                                            sleep_jitter(5, 50).await;
-                                            continue;
-                                        }
-                                        false => return Err(err),
-                                    },
-                                };
-                            }
-                        }
                     }
-
-                    tx.commit().await?;
-                    drop(interval_lock);
-                    debug!(
-                        "Committed data for {} posts (board: {}) to MySQL. Took {}ms",
-                        rows,
-                        board,
-                        save_start.elapsed().as_millis(),
-                    );
-                    images_to_save.extend(media_ids);
-                    self.metrics.incr_posts(rows as u64);
-                    self.notify_post(rows);
-                    processed_posts -= rows;
-                    break;
                 }
             }
             Ok(images_to_save)
@@ -882,47 +929,14 @@ impl AsagiInner {
             }
             false => PathBuf::from(format!("{}/{}", &filename[0..4], &filename[4..6])),
         };
-        let subdir = self
-            .media_path
-            .as_ref()
-            .unwrap()
-            .join(board.as_ref())
+        let subdir = Path::new(board.as_ref())
             .join(match media_kind {
                 MediaKind::Thumb => "thumb",
                 MediaKind::Image => "image",
             })
             .join(subdir);
         //if !subdir.exists() {
-        if tokio::fs::metadata(&subdir).await.is_err() {
-            let parent = subdir.parent().unwrap();
-            let has_parent = parent.exists();
-            if let Err(err) = tokio::fs::create_dir_all(&subdir).await {
-                return Err(Error::from(err));
-            }
-            #[cfg(target_family = "windows")]
-            {
-                // get rid of warning on windows build
-                let _has_parent = has_parent;
-            }
-            #[cfg(not(target_family = "windows"))]
-            if let Some(group) = &self.media_group {
-                if !has_parent {
-                    tokio::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o755))
-                        .await?;
-                    let _ = nix::unistd::chown(
-                        parent,
-                        None,
-                        Some(nix::unistd::Gid::from_raw(group.gid())),
-                    );
-                }
-                tokio::fs::set_permissions(&subdir, std::fs::Permissions::from_mode(0o755)).await?;
-                let _ = nix::unistd::chown(
-                    &subdir,
-                    None,
-                    Some(nix::unistd::Gid::from_raw(group.gid())),
-                );
-            }
-        }
+
         return Ok(subdir.join(filename));
     }
 
@@ -1275,6 +1289,7 @@ impl AsagiInner {
                 if !self.fail_on_save_error {
                     warn!("Some posts were unable to be archived, however the error isn't being treated as fatal. Some posts may be lost.")
                 }
+                self.metrics.incr_save_error(1);
                 self.failed.store(true, Ordering::SeqCst);
             }
         }

@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS `%%BOARD%%` (
   INDEX email_index (`email`),
   INDEX poster_ip_index (`poster_ip`),
   INDEX timestamp_index (`timestamp`)
-) engine=InnoDB CHARSET=%%CHARSET%%;
+) ENGINE=%%ENGINE%% CHARSET=%%CHARSET%%;
 
 CREATE TABLE IF NOT EXISTS `%%BOARD%%_deleted` LIKE `%%BOARD%%`;
 
@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS `%%BOARD%%_threads` (
   INDEX time_last_modified_index (`time_last_modified`),
   INDEX sticky_index (`sticky`),
   INDEX locked_index (`locked`)
-) ENGINE=InnoDB CHARSET=%%CHARSET%%;
+) ENGINE=%%ENGINE%% CHARSET=%%CHARSET%%;
 
 CREATE TABLE IF NOT EXISTS `%%BOARD%%_users` (
   `user_id` int unsigned NOT NULL auto_increment,
@@ -83,7 +83,7 @@ CREATE TABLE IF NOT EXISTS `%%BOARD%%_users` (
   UNIQUE name_trip_index (`name`, `trip`),
   INDEX firstseen_index (`firstseen`),
   INDEX postcount_index (`postcount`)
-) ENGINE=InnoDB DEFAULT CHARSET=%%CHARSET%%;
+) ENGINE=%%ENGINE%% DEFAULT CHARSET=%%CHARSET%%;
 
 CREATE TABLE IF NOT EXISTS `%%BOARD%%_images` (
   `media_id` int unsigned NOT NULL auto_increment,
@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS `%%BOARD%%_images` (
   UNIQUE media_hash_index (`media_hash`),
   INDEX total_index (`total`),
   INDEX banned_index (`banned`)
-) ENGINE=InnoDB DEFAULT CHARSET=%%CHARSET%%;
+) ENGINE=%%ENGINE%% DEFAULT CHARSET=%%CHARSET%%;
 
 CREATE TABLE IF NOT EXISTS `%%BOARD%%_daily` (
   `day` int(10) unsigned NOT NULL,
@@ -110,4 +110,4 @@ CREATE TABLE IF NOT EXISTS `%%BOARD%%_daily` (
   `names` int(10) unsigned NOT NULL,
 
   PRIMARY KEY (`day`)
-) ENGINE=InnoDB DEFAULT CHARSET=%%CHARSET%%;
+) ENGINE=%%ENGINE%% DEFAULT CHARSET=%%CHARSET%%;

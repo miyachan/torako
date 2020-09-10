@@ -81,20 +81,6 @@ request_timeout = "30m"
 ## Thumb content host URL (Default: "https://i.4cdn.org/")
 #thumb_url = "https://i.4cdn.org/"
 
-## Media Path. This is where downloaded content is stored. If this is not
-## provided then media downloading will be disabled.
-media_path = "/var/lib/torako"
-
-# TMP dir. (Default: System Temp Path + /torako)
-#tmp_dir = "/tmp/torako"
-
-## Old Directory Structure. This is a legacy option in Asagi. (Default: false)
-#old_dir_structure = false
-
-## Web UNIX Group. On Unix system, if this is set, all downloads and download
-## folders will have their group ownership set to this. (Default: None)
-#web_unix_group = "www-data"
-
 ## If we fail to save a thread or post to MySQL for whatever
 ## reason, we should consider this as a fatal error and
 ## stop Torako. The operator (or system) should restart Torako.
@@ -102,6 +88,15 @@ media_path = "/var/lib/torako"
 ## that thread could be lost if this is set to false.
 ## (Default: true)
 #fail_on_save_error = true
+
+## This option denotes how many times saving the posts should be retried
+## in case of some database error. If `fail_on_save_error` is true,
+## and the number of retries is exceeded, then torako will crash. If
+## `fail_on_save_error` is false, then the posts are dropped to the floor
+## and not saved at all. If this is set to a high number and inflight_posts
+## is set to a high number, errors that are persistent (ex. the database
+## machine blew up) will cause Torako to buffer more and more posts in memory.
+#retries_on_save_error = 0
 
 ## Inflight Posts. This number denotes how many posts can be buffered in memory
 ## at a time before Asagi rejects accepting more posts. This acts as a form
@@ -132,6 +127,21 @@ media_path = "/var/lib/torako"
 ## must be downloaded.
 #media_backpressure = false
 
+[backend.asagi.media_storage.filesystem]
+## Media Path. This is where downloaded content is stored. If this is not
+## provided then media downloading will be disabled.
+media_path = "/var/lib/torako"
+
+# TMP dir. (Default: System Temp Path + /torako)
+#tmp_dir = "/tmp/torako"
+
+## Old Directory Structure. This is a legacy option in Asagi. (Default: false)
+#old_dir_structure = false
+
+## Web UNIX Group. On Unix system, if this is set, all downloads and download
+## folders will have their group ownership set to this. (Default: None)
+#web_unix_group = "www-data"
+
 [backend.asagi.database]
 ## Database URL. Usually in the format of
 ## mysql://username:password@host/db_name.
@@ -156,6 +166,11 @@ use_triggers = true
 ## by Torako and flushed to MySQL.
 ## (Default: false)
 compute_stats = false
+
+## MySQL Database Engine. Use this datbase engine for all tables that
+## Torako creates.
+## (Default: InnoDB)
+#mysql_engine = "InnoDB"
 
 ## The orginal Asagi column definitions for the `email`, `name`, and `title`,
 ## fields are are limited to 100 characters. By default Torako will truncate
