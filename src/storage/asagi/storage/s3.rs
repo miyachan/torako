@@ -32,6 +32,7 @@ pub struct S3 {
     s3_client: Arc<S3Client>,
     acl: Option<String>,
     bucket: String,
+    check_exists: bool,
 }
 
 impl S3 {
@@ -49,6 +50,7 @@ impl S3 {
         region: W,
         endpoint: Option<X>,
         acl: Option<Y>,
+        check_exists: bool,
     ) -> Result<Self, Error> {
         let provider = credential::StaticProvider::new_minimal(
             access_key.as_ref().into(),
@@ -73,6 +75,7 @@ impl S3 {
             )),
             bucket: String::from(bucket.as_ref()),
             acl: acl.map(|x| String::from(x.as_ref())),
+            check_exists,
         };
 
         Ok(s3)
@@ -81,6 +84,9 @@ impl S3 {
 
 impl S3 {
     pub async fn exists<T: AsRef<Path>>(&self, filepath: T) -> Result<bool, Error> {
+        if !self.check_exists {
+            return Ok(false);
+        }
         let head_object_req = rusoto_s3::HeadObjectRequest {
             bucket: self.bucket.clone(),
             key: filepath.as_ref().to_string_lossy().to_string(),

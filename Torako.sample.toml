@@ -161,6 +161,10 @@ media_path = "/var/lib/torako"
 ## S3 Object ACL. Leaving this blank will not set an ACL.
 #acl = "public-read"
 
+## Set this to false if Torako should skip checking if the image already
+## exists, and always redownload. (Default: true)
+#check_exists = false
+
 #[backend.asagi.media_storage.b2]
 ## Backblaze Native API Storage Engine
 
@@ -173,6 +177,10 @@ media_path = "/var/lib/torako"
 
 ## Backblaze Bucket ID.
 #bucket_id = "44444433333"
+
+## Set this to false if Torako should skip checking if the image already
+## exists, and always redownload. (Default: true)
+#check_exists = false
 
 [backend.asagi.database]
 ## Database URL. Usually in the format of

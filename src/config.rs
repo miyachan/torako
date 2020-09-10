@@ -126,6 +126,8 @@ pub struct AsagiS3Storage {
     pub endpoint: Option<reqwest::Url>,
     pub bucket: String,
     pub acl: Option<String>,
+    #[serde(default)]
+    pub check_exists: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -135,4 +137,6 @@ pub struct AsagiB2Storage {
     pub application_key_id: String,
     pub application_key: String,
     pub bucket_id: String,
+    #[serde(default)]
+    pub check_exists: Option<bool>,
 }

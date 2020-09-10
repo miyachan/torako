@@ -28,6 +28,7 @@ pub struct Backblaze {
     authorization_token: AtomicPtr<String>,
     download_url: reqwest::Url,
     api_url: reqwest::Url,
+    check_exists: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -128,6 +129,7 @@ impl Backblaze {
         bucket_id: T,
         key_id: U,
         key: V,
+        check_exists: bool,
     ) -> Result<Self, Error> {
         let empty = Box::into_raw(Box::new(String::from("")));
         let mut backblaze = Self {
@@ -139,6 +141,7 @@ impl Backblaze {
             authorization_token: AtomicPtr::new(empty),
             download_url: reqwest::Url::parse("http://localhost/").unwrap(),
             api_url: reqwest::Url::parse("http://localhost/").unwrap(),
+            check_exists,
         };
         let (download_url, api_url) = backblaze.renew_token().await?;
         backblaze.download_url = download_url;
@@ -150,6 +153,9 @@ impl Backblaze {
 
 impl Backblaze {
     pub async fn exists<T: AsRef<Path>>(&self, filepath: T) -> Result<bool, Error> {
+        if !self.check_exists {
+            return Ok(false);
+        }
         let mut file_url = self.download_url.clone();
         file_url.set_path(&format!(
             "/file/{}/{}",

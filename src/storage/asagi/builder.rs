@@ -298,6 +298,7 @@ impl AsagiBuilder {
                     &conf.region,
                     conf.endpoint.as_ref().map(|x| x.to_string()),
                     conf.acl.clone(),
+                    conf.check_exists.unwrap_or(true),
                 )
                 .await?,
             ),
@@ -311,6 +312,7 @@ impl AsagiBuilder {
                     &conf.bucket_id,
                     &conf.application_key_id,
                     &conf.application_key,
+                    conf.check_exists.unwrap_or(true),
                 )
                 .await?,
             ),
