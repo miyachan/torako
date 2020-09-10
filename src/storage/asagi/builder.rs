@@ -1,4 +1,4 @@
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize},
@@ -23,7 +23,6 @@ pub struct AsagiBuilder {
     without_triggers: bool,
     with_stats: bool,
     old_dir_structure: bool,
-    web_unix_group: Option<OsString>,
     tmp_dir: Option<PathBuf>,
     http_client: Option<reqwest::Client>,
     media_url: Option<reqwest::Url>,
@@ -38,6 +37,7 @@ pub struct AsagiBuilder {
     truncate_fields: bool,
     sql_set_utc: bool,
     mysql_engine: String,
+    filesystem_config: Option<crate::config::AsagiFilesystemStorage>,
 }
 
 impl Default for AsagiBuilder {
@@ -50,7 +50,6 @@ impl Default for AsagiBuilder {
             without_triggers: false,
             with_stats: false,
             old_dir_structure: false,
-            web_unix_group: None,
             tmp_dir: None,
             http_client: None,
             media_url: None,
@@ -65,6 +64,7 @@ impl Default for AsagiBuilder {
             truncate_fields: true,
             sql_set_utc: true,
             mysql_engine: String::from("InnoDB"),
+            filesystem_config: None,
         }
     }
 }
@@ -188,41 +188,6 @@ impl AsagiBuilder {
         self
     }
 
-    #[cfg(target_family = "windows")]
-    pub fn media_unix_group<T: AsRef<OsStr>>(mut self, _group: T) -> Self {
-        self.web_unix_group = None;
-        self
-    }
-
-    #[cfg(not(target_family = "windows"))]
-    pub fn media_unix_group<T: AsRef<OsStr>>(mut self, group: T) -> Self {
-        self.web_unix_group = Some(OsString::from(group.as_ref()));
-        self
-    }
-
-    #[cfg(target_family = "windows")]
-    fn group(&self) -> Result<(), Error> {
-        Ok(())
-    }
-
-    #[cfg(not(target_family = "windows"))]
-    fn group(&self) -> Result<Option<users::Group>, Error> {
-        self.web_unix_group
-            .as_ref()
-            .map(|g| users::get_group_by_name(g).ok_or(Error::InvalidUserGroup))
-            .transpose()
-    }
-
-    #[cfg(all(feature = "io-uring", target_os = "linux"))]
-    fn io_ring(&self) -> rio::Rio {
-        rio::new().expect("create uring")
-    }
-
-    #[cfg(not(all(feature = "io-uring", target_os = "linux")))]
-    fn io_ring(&self) -> () {
-        ()
-    }
-
     pub async fn build(mut self) -> Result<Asagi, Error> {
         if self.boards.len() == 0 {
             return Err(Error::NoBoards);
@@ -304,25 +269,23 @@ impl AsagiBuilder {
 
         drop(conn);
 
-        let tmp_dir = match self.tmp_dir.clone() {
-            Some(t) => t,
-            None => std::env::temp_dir().join("torako"),
-        };
-
-        match tokio::fs::metadata(&tmp_dir).await {
-            Ok(m) => {
-                if !m.is_dir() {
-                    return Err(Error::InvalidTempDir(tmp_dir.to_owned()));
-                }
-            }
-            Err(_) => tokio::fs::create_dir_all(&tmp_dir).await?,
-        };
-
         let (process_tx, process_rx) = tokio::sync::mpsc::unbounded_channel();
 
+        let fs_storage = match &self.filesystem_config {
+            Some(conf) => Some(
+                super::storage::FileSystem::new(
+                    &conf.media_path,
+                    conf.tmp_dir
+                        .clone()
+                        .unwrap_or(std::env::temp_dir().join("torako")),
+                    conf.web_unix_group.as_ref().map(|x| OsStr::new(x)),
+                )
+                .await?,
+            ),
+            None => None,
+        };
+
         let asagi = AsagiInner {
-            io_ring: self.io_ring(),
-            media_group: self.group()?,
             client: self.http_client.unwrap_or(reqwest::Client::new()),
             media_url: self
                 .media_url
@@ -332,10 +295,8 @@ impl AsagiBuilder {
                 .unwrap_or("https://i.4cdn.org/".parse().unwrap()),
             download_thumbs: self.download_thumbs,
             download_media: self.download_media,
-            tmp_dir,
             boards: self.boards,
             without_triggers: self.without_triggers,
-            media_path: self.media_path,
             with_stats: self.with_stats,
             direct_db_pool: pool,
             asagi_start_time: match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
@@ -360,6 +321,7 @@ impl AsagiBuilder {
             failed: AtomicBool::new(false),
             metrics: Arc::new(super::AsagiMetrics::default()),
             process_tx,
+            fs_storage,
         };
 
         let asagi = Arc::new(asagi);
@@ -430,9 +392,6 @@ impl From<&crate::config::Asagi> for AsagiBuilder {
         if let Some(retries_on_save_error) = config.retries_on_save_error {
             builder = builder.retries_on_save_error(retries_on_save_error);
         }
-        if let Some(web_unix_group) = &config.web_unix_group {
-            builder = builder.media_unix_group(web_unix_group);
-        }
         if let Some(media_backpressure) = config.media_backpressure {
             builder = builder.media_backpressure(media_backpressure);
         }
@@ -445,6 +404,25 @@ impl From<&crate::config::Asagi> for AsagiBuilder {
         if let Some(mysql_engine) = &config.database.mysql_engine {
             builder = builder.set_mysql_engine(mysql_engine);
         }
+
+        let filesystem_config = match config
+            .media_storage
+            .as_ref()
+            .map(|x| x.filesystem.as_ref())
+            .flatten()
+        {
+            Some(c) => Some(c.clone()),
+            None => match &config.media_path {
+                Some(m) => Some(crate::config::AsagiFilesystemStorage {
+                    disabled: false,
+                    media_path: m.clone(),
+                    tmp_dir: config.tmp_dir.clone(),
+                    web_unix_group: config.web_unix_group.clone(),
+                }),
+                None => None,
+            },
+        };
+        builder.filesystem_config = filesystem_config;
 
         builder
     }

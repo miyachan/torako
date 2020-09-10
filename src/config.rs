@@ -66,14 +66,14 @@ pub struct Asagi {
     #[serde(default)]
     pub media_storage: Option<AsagiStorage>,
     pub database: AsagiDatabase,
+    #[serde(default)]
+    pub old_dir_structure: Option<bool>,
 
     // Options kept for backwards compatibility
     #[serde(default)]
     pub media_path: Option<PathBuf>,
     #[serde(default)]
     pub tmp_dir: Option<PathBuf>,
-    #[serde(default)]
-    pub old_dir_structure: Option<bool>,
     #[serde(default)]
     pub web_unix_group: Option<String>,
 }
@@ -98,19 +98,16 @@ pub struct AsagiDatabase {
 #[derive(Debug, Deserialize, Clone)]
 pub struct AsagiStorage {
     #[serde(default)]
-    pub filesystem: Option<AsagiFilesystemStorage>
+    pub filesystem: Option<AsagiFilesystemStorage>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct AsagiFilesystemStorage {
     #[serde(default)]
-    pub enabled: bool,
-    #[serde(default)]
-    pub media_path: Option<PathBuf>,
+    pub disabled: bool,
+    pub media_path: PathBuf,
     #[serde(default)]
     pub tmp_dir: Option<PathBuf>,
-    #[serde(default)]
-    pub old_dir_structure: Option<bool>,
     #[serde(default)]
     pub web_unix_group: Option<String>,
 }

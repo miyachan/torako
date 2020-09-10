@@ -9,16 +9,12 @@ use std::sync::{
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
-#[cfg(not(target_family = "windows"))]
-use std::os::unix::fs::PermissionsExt;
-
 use backoff::backoff::Backoff;
 use futures::future::Either;
 use futures::prelude::*;
 use futures::task::AtomicWaker;
 use log::{debug, error, info, warn};
 use mysql_async::{prelude::*, TxOpts};
-use rand::distributions::Alphanumeric;
 use rand::Rng;
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Serialize;
@@ -28,6 +24,7 @@ use tokio::io::AsyncWriteExt;
 mod builder;
 mod interval_lock;
 mod stats;
+pub mod storage;
 mod thread;
 
 use crate::imageboard;
@@ -222,11 +219,9 @@ struct AsagiInner {
     boards: FxHashMap<String, BoardOpts>,
     without_triggers: bool,
     with_stats: bool,
-    media_path: Option<PathBuf>,
     direct_db_pool: mysql_async::Pool,
     asagi_start_time: i64,
     old_dir_structure: bool,
-    tmp_dir: PathBuf,
     media_url: reqwest::Url,
     thumb_url: reqwest::Url,
     download_thumbs: bool,
@@ -250,19 +245,7 @@ struct AsagiInner {
     metrics: Arc<AsagiMetrics>,
     process_tx: tokio::sync::mpsc::UnboundedSender<AsagiTask>,
 
-    #[cfg(target_family = "windows")]
-    #[allow(dead_code)]
-    media_group: (),
-
-    #[cfg(not(target_family = "windows"))]
-    media_group: Option<users::Group>,
-
-    #[cfg(all(feature = "io-uring", target_os = "linux"))]
-    io_ring: rio::Rio,
-
-    #[cfg(not(all(feature = "io-uring", target_os = "linux")))]
-    #[allow(dead_code)]
-    io_ring: (),
+    fs_storage: Option<storage::FileSystem>,
 }
 
 #[derive(Debug)]
@@ -865,6 +848,7 @@ impl AsagiInner {
                             self.metrics.incr_posts(rows as u64);
                             self.notify_post(rows);
                             processed_posts -= rows;
+                            break;
                         }
                         Err(err) => match err {
                             Error::Deadlock => {
@@ -1052,29 +1036,25 @@ impl AsagiInner {
             }
         };
 
+        let file_sink = match &self.fs_storage {
+            Some(fs) => match fs.open(&filename).await {
+                Ok(f) => Some(f),
+                Err(Error::ImageExists) => None,
+                Err(err) => Err(err)?,
+            },
+            None => None,
+        };
+
+        let should_download = file_sink.is_some();
+
         // if !filename.exists() {
-        if tokio::fs::metadata(&filename).await.is_err() {
-            let tempname = self.tmp_dir.join(
-                rand::thread_rng()
-                    .sample_iter(&Alphanumeric)
-                    .take(16)
-                    .collect::<String>(),
-            );
-
-            let file = tokio::fs::OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .open(&tempname)
-                .await?;
-
+        if should_download {
             match kind {
                 MediaKind::Thumb => debug!("Downloading media {:?}", url),
                 MediaKind::Image => debug!("Downloading thumb {:?}", url),
             };
             let dl_start = Instant::now();
-            #[allow(unused_mut)]
-            let (mut file, downloaded) = self
+            let (sinks, downloaded) = self
                 .client
                 .get(url)
                 .send()
@@ -1087,36 +1067,20 @@ impl AsagiInner {
                     Some(reqwest::StatusCode::FORBIDDEN) => Error::CloudFlareBlocked(err),
                     _ => Error::from(err),
                 })
-                .try_fold((file, 0), |(mut f, bytes), buf| async move {
-                    #[cfg(all(feature = "io-uring", target_os = "linux"))]
-                    loop {
-                        let mut idx = 0;
-                        match self.io_ring.write_at(&f, &buf[idx..], idx).await {
-                            Ok(b) => {
-                                if idx + b == buf.len() {
-                                    return Ok((f, bytes + buf.len()));
-                                } else {
-                                    idx += b;
-                                    continue;
-                                }
-                            }
-                            Err(e) => return Err(Error::from(e)),
+                .try_fold(((file_sink,), 0), |(mut f, bytes), buf| async move {
+                    if f.0.is_some() {
+                        if let Err(e) = f.0.as_mut().unwrap().write_all(&buf).await {
+                            return Err(Error::from(e));
                         }
                     }
-
-                    #[cfg(not(all(feature = "io-uring", target_os = "linux")))]
-                    match f.write_all(&buf).await {
-                        Ok(_) => Ok((f, bytes + buf.len())),
-                        Err(e) => Err(Error::from(e)),
-                    }
+                    return Ok((f, bytes + buf.len()));
                 })
                 .await?;
 
-            #[cfg(not(all(feature = "io-uring", target_os = "linux")))]
-            file.flush().await?;
+            if sinks.0.is_some() {
+                sinks.0.unwrap().shutdown().await?;
+            };
 
-            drop(file);
-            tokio::fs::rename(&tempname, &filename).await?;
             info!(
                 "Downloaded {} {}/{}. {} bytes. Took {}ms",
                 meta.board,
@@ -1135,26 +1099,12 @@ impl AsagiInner {
                 MediaKind::Thumb => self.metrics.incr_thumbs(1),
                 MediaKind::Image => self.metrics.incr_media(1),
             };
-
-            #[cfg(not(target_family = "windows"))]
-            if let Some(group) = &self.media_group {
-                tokio::fs::set_permissions(&filename, std::fs::Permissions::from_mode(0o644))
-                    .await?;
-                let _ = nix::unistd::chown(
-                    &filename,
-                    None,
-                    Some(nix::unistd::Gid::from_raw(group.gid())),
-                );
-            }
         }
 
         Ok(())
     }
 
     async fn save_media(&self, media: &thread::Media, meta: &MediaDescriptor) -> Result<(), Error> {
-        if self.media_path.is_none() {
-            return Ok(());
-        }
         if media.banned {
             return Ok(());
         }

@@ -81,6 +81,9 @@ request_timeout = "30m"
 ## Thumb content host URL (Default: "https://i.4cdn.org/")
 #thumb_url = "https://i.4cdn.org/"
 
+## Old Directory Structure. This is a legacy option in Asagi. (Default: false)
+#old_dir_structure = false
+
 ## If we fail to save a thread or post to MySQL for whatever
 ## reason, we should consider this as a fatal error and
 ## stop Torako. The operator (or system) should restart Torako.
@@ -135,9 +138,6 @@ media_path = "/var/lib/torako"
 # TMP dir. (Default: System Temp Path + /torako)
 #tmp_dir = "/tmp/torako"
 
-## Old Directory Structure. This is a legacy option in Asagi. (Default: false)
-#old_dir_structure = false
-
 ## Web UNIX Group. On Unix system, if this is set, all downloads and download
 ## folders will have their group ownership set to this. (Default: None)
 #web_unix_group = "www-data"
@@ -188,4 +188,3 @@ compute_stats = false
 ## if your database is already in UTC.
 ## (Default: true)
 #sql_set_utc = true
-
