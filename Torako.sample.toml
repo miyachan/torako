@@ -228,3 +228,22 @@ compute_stats = false
 ## if your database is already in UTC.
 ## (Default: true)
 #sql_set_utc = true
+
+[backend.asagi_pg_search]
+disabled = true
+
+## Database URL. In the format of
+## postgresql://username:password@host/db_name.
+database_url = "postgres://localhost/"
+
+## See the option description under backend.asagi
+## Default: true
+#fail_on_save_error = true
+
+## Inflight Posts.  See the option description under backend.asagi
+## Default: unlimited
+#inflight_posts = 65536
+
+## See the option description under backend.asagi
+## Default 0
+#retries_on_save_error = 0

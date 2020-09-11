@@ -1,4 +1,5 @@
 pub mod asagi;
+pub mod search_pg;
 
 pub trait MetricsProvider: Sync + Send {
     fn name(&self) -> &'static str;

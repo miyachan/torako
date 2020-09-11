@@ -66,7 +66,7 @@ pub struct CatalogThread {
     pub last_modified: u64,
     pub tag: Option<String>,
     pub semantic_url: Option<String>,
-    pub since4pass: Option<u32>,
+    pub since4pass: Option<u16>,
     #[serde(default)]
     pub unique_ips: u32,
     #[serde(default, deserialize_with = "bool_from_int")]
@@ -109,9 +109,9 @@ pub struct Post {
     pub fsize: u64,
     pub md5: Option<String>,
     #[serde(default)]
-    pub w: u32,
+    pub w: i32,
     #[serde(default)]
-    pub h: u32,
+    pub h: i32,
     #[serde(default)]
     pub tn_w: u32,
     #[serde(default)]
@@ -132,7 +132,7 @@ pub struct Post {
     pub imagelimit: bool,
     pub tag: Option<String>,
     pub semantic_url: Option<String>,
-    pub since4pass: Option<u32>,
+    pub since4pass: Option<i32>,
     #[serde(default)]
     pub unique_ips: u32,
     #[serde(default, deserialize_with = "bool_from_int")]

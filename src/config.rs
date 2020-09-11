@@ -41,10 +41,13 @@ pub struct Board {
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct Backend {
     pub asagi: Option<Asagi>,
+    pub asagi_pg_search: Option<AsagiSearch>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Asagi {
+    #[serde(default)]
+    pub disabled: bool,
     #[serde(default)]
     pub thumbs: Option<bool>,
     #[serde(default)]
@@ -139,4 +142,17 @@ pub struct AsagiB2Storage {
     pub bucket_id: String,
     #[serde(default)]
     pub check_exists: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct AsagiSearch {
+    #[serde(default)]
+    pub disabled: bool,
+    pub database_url: url::Url,
+    #[serde(default)]
+    pub inflight_posts: Option<NonZeroUsize>,
+    #[serde(default)]
+    pub fail_on_save_error: Option<bool>,
+    #[serde(default)]
+    pub retries_on_save_error: Option<usize>,
 }

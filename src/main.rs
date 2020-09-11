@@ -15,6 +15,7 @@ use clap::{crate_version, App, Arg, ArgMatches};
 use futures::prelude::*;
 use log::{error, info, warn};
 use pretty_env_logger;
+use thiserror::Error;
 
 mod api;
 mod config;
@@ -23,6 +24,14 @@ mod imageboard;
 mod storage;
 
 pub use feed::FeedSinkExt;
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("Asagi: {}", .0)]
+    Asagi(#[from] storage::asagi::Error),
+    #[error("PG Search: {}", .0)]
+    PG(#[from] storage::search_pg::Error),
+}
 
 async fn run_async(config: config::Config) -> i32 {
     println!("Torako: Imageboard Archiver");
@@ -92,46 +101,66 @@ async fn run_async(config: config::Config) -> i32 {
         error!("No boards were configured for archiving!");
         return 1;
     }
-    if config.backend.asagi.is_none() {
-        error!("No valid storage backend was configured.");
-        error!("Note: Currently only the Asagi backend is supported");
-        return 1;
-    }
-    let asagi = {
-        let asagi_conf = config.backend.asagi.as_ref().unwrap();
-        config
-            .boards
-            .boards
-            .iter()
-            .map(|(name, board)| {
-                (
-                    name.clone(),
-                    board
-                        .download_thumbs
-                        .or(config.boards.download_thumbs)
-                        .unwrap_or(true),
-                    board
-                        .download_media
-                        .or(config.boards.download_media)
-                        .unwrap_or(true),
-                )
-            })
-            .fold(
-                storage::asagi::AsagiBuilder::from(asagi_conf),
-                |acc, (name, thumbs, media)| acc.with_board(name, thumbs, media),
-            )
-            .with_http_client(http_client.clone())
-            .build()
-            .await
+
+    let asagi = match config.backend.asagi.as_ref() {
+        Some(asagi_conf) if !asagi_conf.disabled => {
+            let asagi = {
+                config
+                    .boards
+                    .boards
+                    .iter()
+                    .map(|(name, board)| {
+                        (
+                            name.clone(),
+                            board
+                                .download_thumbs
+                                .or(config.boards.download_thumbs)
+                                .unwrap_or(true),
+                            board
+                                .download_media
+                                .or(config.boards.download_media)
+                                .unwrap_or(true),
+                        )
+                    })
+                    .fold(
+                        storage::asagi::AsagiBuilder::from(asagi_conf),
+                        |acc, (name, thumbs, media)| acc.with_board(name, thumbs, media),
+                    )
+                    .with_http_client(http_client.clone())
+                    .build()
+                    .await
+            };
+
+            match asagi {
+                Ok(a) => Some(a),
+                Err(err) => {
+                    error!("Failed to initialize asagi storage backend: {}", err);
+                    return 1;
+                }
+            }
+        }
+        _ => None,
     };
 
-    let mut asagi = match asagi {
-        Ok(a) => a,
-        Err(err) => {
-            error!("Failed to initialize asagi storage backend: {}", err);
-            return 1;
+    let search = match config.backend.asagi_pg_search.as_ref() {
+        Some(conf) if !conf.disabled => {
+            let builder = storage::search_pg::SearchBuilder::from(conf);
+            match builder.build().await {
+                Ok(a) => Some(a),
+                Err(err) => {
+                    error!(
+                        "Failed to initialize asagi pg storage search backend: {}",
+                        err
+                    );
+                    return 1;
+                }
+            }
         }
+        _ => None,
     };
+
+    if config.backend.asagi.is_none() {}
+
     let running = AtomicBool::new(true);
     let (end_stream, stream_ender) = tokio::sync::oneshot::channel();
     let mut end_stream = Some(end_stream);
@@ -152,8 +181,13 @@ async fn run_async(config: config::Config) -> i32 {
     }).expect("Error setting Ctrl-C handler");
 
     let board_metrics = boards.iter().map(|x| x.metrics()).collect();
-    let storage_metrics: Vec<Box<dyn crate::storage::MetricsProvider>> =
-        vec![Box::new(asagi.metrics_provider())];
+    let mut storage_metrics: Vec<Box<dyn crate::storage::MetricsProvider>> = vec![];
+    if let Some(asagi) = asagi.as_ref() {
+        storage_metrics.push(Box::new(asagi.metrics_provider()));
+    }
+    if let Some(search) = search.as_ref() {
+        storage_metrics.push(Box::new(search.metrics_provider()));
+    }
 
     if let Some(addr) = config.api_addr {
         tokio::spawn(async move {
@@ -168,18 +202,46 @@ async fn run_async(config: config::Config) -> i32 {
         futures::stream::select(boards_stream, stream_ender.map(|_| None).into_stream())
             .take_while(|x| future::ready(x.is_some()))
             .map(|x| Ok(x.unwrap()));
-    let res = asagi.feed_all(&mut boards_stream);
-    match res.await {
-        Ok(_) => match asagi.close().await {
-            Ok(_) => {
-                info!("Goodbye.");
-                0
+    // let res = asagi.feed_all(&mut boards_stream);
+    let mut asagi = asagi.map(|asagi| asagi.sink_map_err(|err| Error::from(err)));
+    let mut search = search.map(|search| search.sink_map_err(|err| Error::from(err)));
+
+    let res = match (asagi.as_mut(), search.as_mut()) {
+        (Some(asagi), None) => asagi.feed_all(&mut boards_stream).await,
+        (None, Some(search)) => search.feed_all(&mut boards_stream).await,
+        (Some(asagi), Some(search)) => {
+            let mut asagi = asagi.fanout(search);
+            asagi.feed_all(&mut boards_stream).await
+        }
+        _ => {
+            error!("No valid storage backend was configured.");
+            return 1;
+        }
+    };
+    match res {
+        Ok(_) => {
+            let asagi_close = match asagi.as_mut() {
+                Some(asagi) => futures::future::Either::Left(asagi.close()),
+                None => futures::future::Either::Right(futures::future::ready(Ok(()))),
+            };
+            let search_close = match search.as_mut() {
+                Some(search) => futures::future::Either::Left(search.close()),
+                None => futures::future::Either::Right(futures::future::ready(Ok(()))),
+            };
+            let close = futures::future::join(asagi_close, search_close)
+                .map(|(a, b)| a.and(b))
+                .await;
+            match close {
+                Ok(_) => {
+                    info!("Goodbye.");
+                    0
+                }
+                Err(err) => {
+                    error!("An error occured shutting down: {}", err);
+                    1
+                }
             }
-            Err(err) => {
-                error!("An error occured shutting down: {}", err);
-                1
-            }
-        },
+        }
         Err(err) => {
             error!("Torako failed: {}", err);
             1
@@ -233,10 +295,10 @@ fn main() {
         std::process::exit(1);
     }));
 
-    if env::var("RUST_LOG").is_err() {
-        env::set_var("RUST_LOG", "torako=info")
+    if env::var("TORAKO_LOG").is_err() {
+        env::set_var("TORAKO_LOG", "torako=info")
     }
-    pretty_env_logger::init_timed();
+    pretty_env_logger::try_init_timed_custom_env("TORAKO_LOG").unwrap();
 
     let matches = App::new("Torako")
         .author("github.com/miyachan")
