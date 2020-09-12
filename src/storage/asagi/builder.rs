@@ -16,7 +16,7 @@ use rustc_hash::FxHashMap;
 use super::{Asagi, AsagiInner, AsagiTask, BoardOpts, Error};
 
 pub struct AsagiBuilder {
-    boards: FxHashMap<String, BoardOpts>,
+    boards: FxHashMap<&'static str, BoardOpts>,
     mysql_url: Option<String>,
     mysql_charset: String,
     media_path: Option<PathBuf>,
@@ -80,8 +80,9 @@ impl AsagiBuilder {
         save_thumbnails: bool,
         save_media: bool,
     ) -> Self {
+        let static_board: &'static str = Box::leak(board.as_ref().to_string().into_boxed_str());
         self.boards.insert(
-            String::from(board.as_ref()),
+            static_board,
             BoardOpts {
                 thumbs: save_thumbnails,
                 media: save_media,

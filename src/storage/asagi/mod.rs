@@ -22,6 +22,7 @@ use thiserror::Error;
 use tokio::io::AsyncWriteExt;
 
 mod builder;
+mod db_metrics;
 mod interval_lock;
 mod stats;
 pub mod storage;
@@ -175,6 +176,7 @@ pub struct Metrics {
     pub inflight_media: usize,
     pub cloudflare_blocked: u64,
     pub save_errors: u64,
+    pub database: Option<db_metrics::DatabaseMetrics>,
 }
 
 #[derive(Default, Debug)]
@@ -223,8 +225,11 @@ impl super::MetricsProvider for AsagiMetricsProvider {
         "asagi"
     }
 
-    fn metrics(&self) -> Box<dyn erased_serde::Serialize> {
-        let m = Metrics {
+    fn metrics(
+        &self,
+    ) -> Pin<Box<dyn std::future::Future<Output = Box<dyn erased_serde::Serialize + Send>> + Send>>
+    {
+        let mut m = Metrics {
             posts: self.inner.metrics.posts.load(Ordering::Acquire),
             thumbs: self.inner.metrics.thumbs.load(Ordering::Acquire),
             media: self.inner.metrics.media.load(Ordering::Acquire),
@@ -235,14 +240,23 @@ impl super::MetricsProvider for AsagiMetricsProvider {
             inflight_media: self.inner.inflight_media.load(Ordering::Acquire),
             cloudflare_blocked: self.inner.metrics.cf_blocked.load(Ordering::Acquire),
             save_errors: self.inner.metrics.save_errors.load(Ordering::Acquire),
+            database: None,
         };
-        Box::new(m)
+
+        let boards: Vec<&'static str> = self.inner.boards.iter().map(|b| *b.0).collect();
+        db_metrics::database_metrics(self.inner.clone(), boards)
+            .map(move |metrics| {
+                m.database = metrics.ok();
+                let m: Box<dyn erased_serde::Serialize + Send> = Box::new(m);
+                m
+            })
+            .boxed()
     }
 }
 
 struct AsagiInner {
     client: reqwest::Client,
-    boards: FxHashMap<String, BoardOpts>,
+    boards: FxHashMap<&'static str, BoardOpts>,
     without_triggers: bool,
     with_stats: bool,
     direct_db_pool: mysql_async::Pool,
@@ -370,11 +384,7 @@ impl AsagiInner {
                     (acc.0.min(x.no), acc.1.max(x.no))
                 });
 
-                let with_unix_timestamp = self
-                    .boards
-                    .get(&board.to_string())
-                    .unwrap()
-                    .with_unix_timestamp;
+                let with_unix_timestamp = self.boards.get(board).unwrap().with_unix_timestamp;
 
                 /*
                  * In order for our stats to work we assume that every post
@@ -436,7 +446,7 @@ impl AsagiInner {
                     debug!("Locking range: {:?}", post_range);
                     let interval_lock = self
                         .boards
-                        .get(&board.to_string())
+                        .get(board)
                         .unwrap()
                         .interval_lock
                         .acquire(post_range)

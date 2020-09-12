@@ -95,7 +95,10 @@ impl super::MetricsProvider for SearchMetricsProvider {
         "pg_search"
     }
 
-    fn metrics(&self) -> Box<dyn erased_serde::Serialize> {
+    fn metrics(
+        &self,
+    ) -> Pin<Box<dyn std::future::Future<Output = Box<dyn erased_serde::Serialize + Send>> + Send>>
+    {
         let queries = self.inner.metrics.queries.load(Ordering::Acquire) as f64;
         let tt = self.inner.metrics.query_time_ns.load(Ordering::Acquire) as f64;
         let m = Metrics {
@@ -103,7 +106,8 @@ impl super::MetricsProvider for SearchMetricsProvider {
             avg_insert_time_ms: queries / tt * 1_000_000.,
             save_errors: self.inner.metrics.save_errors.load(Ordering::Acquire),
         };
-        Box::new(m)
+        let m: Box<dyn erased_serde::Serialize + Send> = Box::new(m);
+        futures::future::ready(m).boxed()
     }
 }
 

@@ -66,7 +66,7 @@ struct Info {
     version: String,
     boards: FxHashMap<&'static str, BoardMetrics>,
     all_boards: BoardMetrics,
-    storage: FxHashMap<&'static str, Box<dyn erased_serde::Serialize>>,
+    storage: FxHashMap<&'static str, Box<dyn erased_serde::Serialize + Send>>,
     ok: bool,
 }
 
@@ -104,9 +104,9 @@ fn info(
         .and(warp::get())
         .and(with_boards(board))
         .and(with_storage(storage))
-        .map(
+        .and_then(
             move |board: Arc<Vec<Arc<crate::imageboard::Metrics>>>,
-                  storage: Arc<Vec<Box<dyn crate::storage::MetricsProvider>>>| {
+                  storage: Arc<Vec<Box<dyn crate::storage::MetricsProvider>>>| async move {
                 let info = Info {
                     name: "torako".into(),
                     uptime: start_time.elapsed(),
@@ -116,10 +116,13 @@ fn info(
                     all_boards: board
                         .iter()
                         .fold(BoardMetrics::default(), |acc, x| acc + x.as_ref().into()),
-                    storage: storage.iter().map(|s| (s.name(), s.metrics())).collect(),
+                    storage: stream::iter(storage.iter())
+                        .then(|s| async move { (s.name(), s.metrics().await) })
+                        .collect()
+                        .await,
                     ok: true,
                 };
-                Ok(warp::reply::json(&info))
+                Ok::<_, core::convert::Infallible>(warp::reply::json(&info))
             },
         )
 }
