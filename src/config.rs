@@ -10,6 +10,7 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct Config {
     pub api_addr: Option<SocketAddr>,
+    pub api_addr_interface: Option<String>,
     pub rate_limit: Option<NonZeroU32>,
     pub thread_concurrency: Option<NonZeroUsize>,
     #[serde(with = "humantime_serde")]

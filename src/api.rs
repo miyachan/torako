@@ -4,7 +4,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use clap::crate_version;
 use futures::prelude::*;
-use log::{error, info};
+use log::{error, info, warn};
 use rustc_hash::FxHashMap;
 use serde::Serialize;
 use warp::{http::StatusCode, Filter};
@@ -155,6 +155,7 @@ async fn handle_rejection(
 
 pub fn serve(
     addr: SocketAddr,
+    addr_interface: Option<String>,
     board_metrics: Vec<Arc<crate::imageboard::Metrics>>,
     storage_metrics: Vec<Box<dyn crate::storage::MetricsProvider>>,
 ) -> impl Future<Output = ()> {
@@ -164,6 +165,34 @@ pub fn serve(
         Arc::new(board_metrics),
         Arc::new(storage_metrics),
     );
+
+    let addr = match addr_interface {
+        #[cfg(target_family = "windows")]
+        Some(_) => {
+            warn!("Binding to interfaces is not possible on Windows");
+            addr
+        }
+        #[cfg(not(target_family = "windows"))]
+        Some(interface) => match get_if_addrs::get_if_addrs() {
+            Ok(interfaces) => {
+                let port = addr.port();
+                if let Some(interface) = interfaces.iter().find(|&x| x.name == interface) {
+                    let addr = interface.ip();
+                    (addr, port).into()
+                } else {
+                    warn!("Failed to find network interface: {}", interface);
+                    warn!("API server will fallback to binding to address.");
+                    addr
+                }
+            }
+            Err(err) => {
+                warn!("Failed to query system interfaces: {}", err);
+                warn!("API server will fallback to binding to address.");
+                addr
+            }
+        },
+        None => addr,
+    };
 
     info!("Starting API server on: {}", addr);
     warp::serve(routes.recover(handle_rejection)).run(addr)

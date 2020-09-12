@@ -2,6 +2,10 @@
 ## the API server will be disabled.
 api_addr = "127.0.0.1:2377"
 
+## Instead of listening on an IP address, torako can be
+## configured to listen on an interface. (UNIX only)
+#api_addr_interface = "eth0"
+
 ## Global Imageboard API Rate Limit in Request/Second/
 ## this rate limit only affects downloading the JSON threads/posts
 ## and will ensure api requests are throttled appropirately.

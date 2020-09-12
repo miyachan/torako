@@ -59,3 +59,4 @@ jemallocator = { version = "0.3.2", optional = true }
 [target.'cfg(not(target_family = "windows"))'.dependencies]
 users = "0.10.0"
 nix = "0.18.0"
+get_if_addrs = "0.5.3"

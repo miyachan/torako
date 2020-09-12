@@ -188,8 +188,9 @@ async fn run_async(config: config::Config) -> i32 {
     }
 
     if let Some(addr) = config.api_addr {
+        let addr_interface = config.api_addr_interface;
         tokio::spawn(async move {
-            api::serve(addr, board_metrics, storage_metrics).await;
+            api::serve(addr, addr_interface, board_metrics, storage_metrics).await;
         });
     }
 
