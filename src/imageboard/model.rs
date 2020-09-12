@@ -20,7 +20,7 @@ pub struct CatalogThread {
     #[serde(default, skip)]
     pub page: usize,
     #[serde(default, skip)]
-    pub board: smallstr::SmallString<[u8; 4]>,
+    pub board: &'static str,
     pub no: u64,
     pub resto: u64,
     #[serde(default, deserialize_with = "bool_from_int")]
@@ -83,7 +83,7 @@ pub struct Thread {
 #[derive(Default, Debug, Deserialize, Clone)]
 pub struct Post {
     #[serde(default, skip)]
-    pub board: smallstr::SmallString<[u8; 4]>,
+    pub board: &'static str,
     pub no: u64,
     pub resto: u64,
     #[serde(default, deserialize_with = "bool_from_int")]
@@ -365,9 +365,9 @@ impl Post {
         Self::clean_simple(ret)
     }
 
-    pub fn deleted<T: AsRef<str>>(board: T, no: u64) -> Self {
+    pub fn deleted(board: &'static str, no: u64) -> Self {
         Self {
-            board: smallstr::SmallString::from_str(board.as_ref()),
+            board,
             no,
             is_retransmission: true,
             deleted: true,

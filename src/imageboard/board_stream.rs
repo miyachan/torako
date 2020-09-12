@@ -201,7 +201,7 @@ impl Metrics {
 pub struct BoardStream {
     client: reqwest::Client,
     host: String,
-    board: String,
+    board: &'static str,
     state: State,
     delay: Delay,
     refresh_rate: Duration,
@@ -248,10 +248,12 @@ impl BoardStream {
         let mut board_url = Url::parse(base_url).unwrap();
         board_url.set_host(Some(host.as_ref())).unwrap();
         board_url.set_path(&format!("/{}/catalog.json", board.as_ref()));
+        let static_board: &'static str = Box::leak(board.as_ref().to_string().into_boxed_str());
+
         Self {
             client,
             host: String::from(host.as_ref()),
-            board: String::from(board.as_ref()),
+            board: static_board,
             refresh_rate,
             delay: delay_until(tokio::time::Instant::now()),
             state: State::Sleeping(None),
@@ -427,7 +429,7 @@ impl Stream for BoardStream {
                                                     .collect::<String>()
                                             )));
                                             let req = self.client.get(thread_url.as_str()).send();
-                                            let board = self.board.clone();
+                                            let board = self.board;
                                             let permit = match &self.concurrency_limit {
                                                 Some(l) => l
                                                     .clone()
@@ -454,10 +456,9 @@ impl Stream for BoardStream {
                                                         .map_err(|err| Error::from(err))
                                                 })
                                                 .map_ok(move |mut t| {
-                                                    t.posts.iter_mut().for_each(|x| {
-                                                        x.board.clear();
-                                                        x.board.push_str(board.as_str());
-                                                    });
+                                                    t.posts
+                                                        .iter_mut()
+                                                        .for_each(|x| x.board = board);
                                                     t.posts
                                                 })
                                                 .map_err(move |err| match err.status() {

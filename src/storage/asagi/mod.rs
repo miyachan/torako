@@ -128,7 +128,7 @@ enum MediaKind {
 
 #[derive(Eq, PartialEq, Clone, Debug)]
 struct MediaDescriptor {
-    board: smallstr::SmallString<[u8; 4]>,
+    board: &'static str,
     hash: smallstr::SmallString<[u8; 32]>,
     is_op: bool,
     thread_no: u64,
@@ -138,7 +138,7 @@ struct MediaDescriptor {
 impl MediaDescriptor {
     fn new(post: &imageboard::Post, preview: Option<String>) -> Self {
         Self {
-            board: smallstr::SmallString::from_str(post.board.as_ref()),
+            board: post.board,
             hash: smallstr::SmallString::from_str(post.md5.as_ref().unwrap()),
             is_op: post.is_op(),
             thread_no: post.thread_no(),
@@ -530,7 +530,7 @@ impl AsagiInner {
                         let board_values = posts
                             .iter()
                             .map(|post| {
-                                if self.boards.get(post.board.as_ref()).is_none() {
+                                if self.boards.get(post.board).is_none() {
                                     panic!(
                                 "Received board {} without being configured for it. This is fatal.",
                                 post.board
@@ -964,7 +964,7 @@ impl AsagiInner {
         if hashes.len() == 0 {
             return Ok(vec![]);
         }
-        let board = hashes.iter().next().unwrap().board.as_str();
+        let board = hashes.iter().next().unwrap().board;
         let values = hashes
             .iter()
             .map(|h| mysql_async::Value::from(h.hash.as_ref()))
@@ -1023,12 +1023,7 @@ impl AsagiInner {
                 }
                 let image_name = filename.unwrap();
                 let filename = match self
-                    .download_path(
-                        meta.board.as_ref(),
-                        MediaKind::Thumb,
-                        image_name,
-                        meta.thread_no,
-                    )
+                    .download_path(meta.board, MediaKind::Thumb, image_name, meta.thread_no)
                     .await
                 {
                     Ok(f) => f,
@@ -1047,7 +1042,7 @@ impl AsagiInner {
                 let media_orig = media.media.as_ref().unwrap();
                 let filename = match self
                     .download_path(
-                        meta.board.as_ref(),
+                        meta.board,
                         MediaKind::Image,
                         media_orig,
                         meta.thread_no,
@@ -1198,7 +1193,7 @@ impl AsagiInner {
         }
         let (dl_thumb, dl_media) = self
             .boards
-            .get(meta.board.as_ref())
+            .get(meta.board)
             .map(|x| {
                 (
                     x.thumbs && self.download_thumbs,
