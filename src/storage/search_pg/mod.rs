@@ -131,8 +131,8 @@ impl SearchInner {
         while item.len() > 0 {
             let start = Instant::now();
             let (remain, posts) = if item.len() > 2000 {
-                let posts = item.split_off(2000);
-                (posts, item)
+                let remain = item.split_off(2000);
+                (remain, item)
             } else {
                 (vec![], item)
             };
@@ -205,9 +205,7 @@ impl SearchInner {
                 )))
                 .collect::<String>();
 
-            let (t, f) = (true, false);
-
-            let i64_rena = arena::Arena::new(posts.len() * 5);
+            let i64_rena = arena::Arena::new(posts.len() * 3);
             let str_rena = arena::Arena::new(posts.len() * 5);
 
             let params = (0..posts.len())
@@ -233,7 +231,7 @@ impl SearchInner {
                         &posts[i].deleted,
                         &false,
                         &posts[i].sticky,
-                        if posts[i].is_op() { &t } else { &f },
+                        if posts[i].is_op() { &true } else { &false },
                         str_rena.alloc(Some(posts[i].short_capcode())),
                     ]);
                     values.into_vec()
