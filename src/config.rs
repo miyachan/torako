@@ -42,6 +42,7 @@ pub struct Board {
 pub struct Backend {
     pub asagi: Option<Asagi>,
     pub asagi_pg_search: Option<AsagiSearch>,
+    pub null: Option<NullBackend>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -155,4 +156,10 @@ pub struct AsagiSearch {
     pub fail_on_save_error: Option<bool>,
     #[serde(default)]
     pub retries_on_save_error: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct NullBackend {
+    #[serde(default)]
+    pub disabled: bool,
 }

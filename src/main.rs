@@ -159,8 +159,6 @@ async fn run_async(config: config::Config) -> i32 {
         _ => None,
     };
 
-    if config.backend.asagi.is_none() {}
-
     let running = AtomicBool::new(true);
     let (end_stream, stream_ender) = tokio::sync::oneshot::channel();
     let mut end_stream = Some(end_stream);
@@ -205,6 +203,14 @@ async fn run_async(config: config::Config) -> i32 {
     // let res = asagi.feed_all(&mut boards_stream);
     let mut asagi = asagi.map(|asagi| asagi.sink_map_err(|err| Error::from(err)));
     let mut search = search.map(|search| search.sink_map_err(|err| Error::from(err)));
+    let null = config
+        .backend
+        .null
+        .and_then(|n| match n.disabled {
+            true => None,
+            false => Some(()),
+        })
+        .map(|_| futures::sink::drain().sink_map_err(|_| unreachable!()));
 
     let res = match (asagi.as_mut(), search.as_mut()) {
         (Some(asagi), None) => asagi.feed_all(&mut boards_stream).await,
@@ -213,6 +219,7 @@ async fn run_async(config: config::Config) -> i32 {
             let mut asagi = asagi.fanout(search);
             asagi.feed_all(&mut boards_stream).await
         }
+        _ if null.is_some() => null.unwrap().feed_all(&mut boards_stream).await,
         _ => {
             error!("No valid storage backend was configured.");
             return 1;
