@@ -209,14 +209,11 @@ impl AsagiBuilder {
                 .collect::<Vec<_>>()
                 .join(", ")
         );
-        match &self.media_path {
-            Some(m) => {
-                info!("Asagi Media Path: {:?}", m);
-                tokio::fs::create_dir_all(m)
-                    .map_err(|_| Error::InvalidMediaDirectory)
-                    .await?;
-            }
-            None => info!("Media saving disabled"),
+        if let Some(m) = &self.media_path {
+            info!("Asagi Filesystem Media Path: {:?}", m);
+            tokio::fs::create_dir_all(m)
+                .map_err(|_| Error::InvalidMediaDirectory)
+                .await?;
         }
         let mysql_url = match self.mysql_url.as_ref() {
             Some(m) => m,
