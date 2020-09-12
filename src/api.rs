@@ -64,7 +64,7 @@ struct Info {
     #[serde(with = "humantime_serde")]
     started_at: Option<SystemTime>,
     version: String,
-    boards: FxHashMap<String, BoardMetrics>,
+    boards: FxHashMap<&'static str, BoardMetrics>,
     all_boards: BoardMetrics,
     storage: FxHashMap<&'static str, Box<dyn erased_serde::Serialize>>,
     ok: bool,
@@ -112,10 +112,7 @@ fn info(
                     uptime: start_time.elapsed(),
                     started_at: Some(system_start),
                     version: crate_version!().into(),
-                    boards: board
-                        .iter()
-                        .map(|b| (b.board.clone(), b.as_ref().into()))
-                        .collect(),
+                    boards: board.iter().map(|b| (b.board, b.as_ref().into())).collect(),
                     all_boards: board
                         .iter()
                         .fold(BoardMetrics::default(), |acc, x| acc + x.as_ref().into()),

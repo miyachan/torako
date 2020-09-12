@@ -273,7 +273,7 @@ impl SearchInner {
     }
 
     async fn send_posts(self: Arc<Self>, item: Vec<imageboard::Post>) {
-        let board = item[0].board.clone();
+        let board = item[0].board;
         let thread_no = item[0].thread_no();
         let post_no = item[0].no;
         let sz = item.len();

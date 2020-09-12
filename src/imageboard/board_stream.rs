@@ -171,7 +171,7 @@ enum ConcurrencyToken {
 
 #[derive(Debug, Default)]
 pub struct Metrics {
-    pub board: String,
+    pub board: &'static str,
     pub warmed_up: AtomicBool,
     pub posts: AtomicU64,
     pub deleted: AtomicU64,
@@ -264,7 +264,7 @@ impl BoardStream {
             base_url,
             deleted_page_threshold,
             metrics: Arc::new(Metrics {
-                board: String::from(board.as_ref()),
+                board: static_board,
                 ..Default::default()
             }),
         }

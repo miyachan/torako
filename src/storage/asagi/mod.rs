@@ -342,7 +342,7 @@ impl AsagiInner {
             let mut conn = self.get_db_conn().await?;
             while all_posts.len() > 0 {
                 let save_start = Instant::now();
-                let board = all_posts[0].board.clone();
+                let board = all_posts[0].board;
                 let (mut posts, remaining): (Vec<imageboard::Post>, Vec<imageboard::Post>) =
                     all_posts.into_iter().partition(|p| p.board == board);
                 all_posts = remaining;
@@ -887,7 +887,7 @@ impl AsagiInner {
                                 if attempts >= self.retries_on_save_error {
                                     return Err(err);
                                 } else {
-                                    let board = posts[0].board.clone();
+                                    let board = posts[0].board;
                                     let thread_no = posts[0].thread_no();
                                     let post_no = posts[0].no;
                                     error!(
@@ -1041,12 +1041,7 @@ impl AsagiInner {
                 }
                 let media_orig = media.media.as_ref().unwrap();
                 let filename = match self
-                    .download_path(
-                        meta.board,
-                        MediaKind::Image,
-                        media_orig,
-                        meta.thread_no,
-                    )
+                    .download_path(meta.board, MediaKind::Image, media_orig, meta.thread_no)
                     .await
                 {
                     Ok(f) => f,
@@ -1272,7 +1267,7 @@ impl AsagiInner {
     }
 
     async fn send_posts(self: Arc<Self>, item: Vec<imageboard::Post>) {
-        let board = item[0].board.clone();
+        let board = item[0].board;
         let thread_no = item[0].thread_no();
         let post_no = item[0].no;
         let sz = item.len();
