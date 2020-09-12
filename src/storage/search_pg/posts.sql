@@ -18,15 +18,16 @@ CREATE TABLE IF NOT EXISTS posts (
     deleted bool,
     ghost bool,
     sticky bool,
+    spoiler bool,
     op bool,
-    capcode VARCHAR(1),
+    capcode INT,
     PRIMARY KEY (board, post_no)
 );
 
 CREATE INDEX IF NOT EXISTS posts_thread ON posts (thread_no);
 CREATE INDEX IF NOT EXISTS posts_subject ON posts USING GIN (subject);
 CREATE INDEX IF NOT EXISTS posts_username ON posts USING GIN (username);
-CREATE INDEX IF NOT EXISTS posts_tripcode ON posts (tripcode);
+CREATE INDEX IF NOT EXISTS posts_tripcode ON posts USING GIN (tripcode);
 CREATE INDEX IF NOT EXISTS posts_email ON posts USING GIN (email);
 CREATE INDEX IF NOT EXISTS posts_unqiue_id ON posts (unique_id);
 CREATE INDEX IF NOT EXISTS posts_since4pass ON posts (since4_pass);
@@ -40,5 +41,6 @@ CREATE INDEX IF NOT EXISTS posts_com ON posts USING GIN (comment);
 CREATE INDEX IF NOT EXISTS posts_deleted ON posts (deleted);
 CREATE INDEX IF NOT EXISTS posts_ghost ON posts (ghost);
 CREATE INDEX IF NOT EXISTS posts_sticky ON posts (sticky);
+CREATE INDEX IF NOT EXISTS posts_spoiler ON posts (spoiler);
 CREATE INDEX IF NOT EXISTS posts_op ON posts (op);
 CREATE INDEX IF NOT EXISTS posts_capcode ON posts (capcode);

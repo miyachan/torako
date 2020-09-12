@@ -143,10 +143,10 @@ impl SearchInner {
                 (board, thread_no, post_no, subject, username, tripcode,
                 email, unique_id, since4_pass, country, filename,
                 image_hash, image_width, image_height, ts, comment, deleted,
-                ghost, sticky, op, capcode) VALUES ";
+                ghost, sticky, spoiler, op, capcode) VALUES ";
             let stmt = std::iter::once(Cow::Borrowed(query))
                 .chain((0..rows).map(|i| {
-                    let z = i * 21;
+                    let z = i * 22;
                     Cow::Owned(
                         [
                             if i == 0 { "(" } else { "\n,(" },
@@ -188,10 +188,12 @@ impl SearchInner {
                             ",",
                             PLACEHOLDERS[z + 18], // sticky
                             ",",
-                            PLACEHOLDERS[z + 19], // op
+                            PLACEHOLDERS[z + 19], // spoiler
                             ",",
-                            PLACEHOLDERS[z + 20], // capcode
-                            ")",
+                            PLACEHOLDERS[z + 20], // op
+                            ",CAST(",
+                            PLACEHOLDERS[z + 21], // capcode
+                            "::INT8 AS INT4))",
                         ]
                         .join(""),
                     )
@@ -205,16 +207,16 @@ impl SearchInner {
                 )))
                 .collect::<String>();
 
-            let i64_rena = arena::Arena::new(posts.len() * 3);
-            let str_rena = arena::Arena::new(posts.len() * 5);
+            let i64_rena = arena::Arena::new(posts.len() * 4);
+            let str_rena = arena::Arena::new(posts.len() * 4);
 
             let params = (0..posts.len())
                 .into_iter()
                 .map(|i| {
                     let values: Box<[&(dyn ToSql + Sync)]> = Box::new([
                         str_rena.alloc(Some(posts[i].board.to_string())),
-                        i64_rena.alloc(posts[i].thread_no() as i64),
-                        i64_rena.alloc(posts[i].no as i64),
+                        i64_rena.alloc(Some(posts[i].thread_no() as i64)),
+                        i64_rena.alloc(Some(posts[i].no as i64)),
                         &posts[i].sub,
                         &posts[i].name,
                         &posts[i].trip,
@@ -226,13 +228,14 @@ impl SearchInner {
                         &posts[i].md5,
                         &posts[i].w,
                         &posts[i].h,
-                        i64_rena.alloc(posts[i].time as i64),
+                        i64_rena.alloc(Some(posts[i].time as i64)),
                         str_rena.alloc(posts[i].comment()),
                         &posts[i].deleted,
                         &false,
                         &posts[i].sticky,
+                        &posts[i].spoiler,
                         if posts[i].is_op() { &true } else { &false },
-                        str_rena.alloc(Some(posts[i].short_capcode())),
+                        i64_rena.alloc(posts[i].short_capcode().chars().next().map(|c| c as i64)),
                     ]);
                     values.into_vec()
                 })
