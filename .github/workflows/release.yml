@@ -1,0 +1,184 @@
+on:
+  push:
+    tags:
+      - "v*"
+
+name: Release
+
+env:
+  GITHUB_REF: "${{ github.ref }}"
+  WINDOWS_TARGET: x86_64-pc-windows-msvc
+  WINDOWS64_NAME: windows-amd64
+  MACOS_TARGET: x86_64-apple-darwin
+  MACOS64_NAME: darwin-amd64
+  LINUX_TARGET: x86_64-unknown-linux-gnu
+  LINUX64_NAME: linux-amd64
+
+jobs:
+  build:
+    name: Build artifacts
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        build: [linux, macos, windows]
+        include:
+          - build: linux
+            os: ubuntu-latest
+            rust: stable
+          - build: macos
+            os: macos-latest
+            rust: stable
+          - build: windows
+            os: windows-latest
+            rust: stable
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v1
+        if: matrix.rust
+        with:
+          path: ~/.cargo/registry
+          key: ${{ matrix.build }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ matrix.build }}-cargo-registry-
+
+      - name: Cache Cargo index
+        uses: actions/cache@v1
+        if: matrix.rust
+        with:
+          path: ~/.cargo/git
+          key: ${{ matrix.build }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ matrix.build }}-cargo-index-
+
+      - name: Cache Cargo build
+        uses: actions/cache@v1
+        if: matrix.rust
+        with:
+          path: target
+          key: ${{ matrix.build }}-target-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ matrix.build }}-target-
+
+      - name: Query version number
+        id: get_version
+        shell: bash
+        run: |
+          echo "using version tag ${GITHUB_REF:10}"
+          echo ::set-output name=version::"${GITHUB_REF:10}"
+
+      - name: Install Rust
+        if: matrix.rust
+        run: |
+          rustup update ${{ matrix.rust }} --no-self-update
+          rustup default ${{ matrix.rust }}
+
+      - name: Build (Linux)
+        if: matrix.build == 'linux'
+        run: |
+          rustup target add ${{ env.LINUX_TARGET }}
+          cargo build --release --target ${{ env.LINUX_TARGET }}
+
+      - name: Build (MacOS)
+        if: matrix.build == 'macos'
+        run: cargo build --release
+
+      - name: Build (Windows)
+        if: matrix.build == 'windows'
+        run: cargo build --release
+
+      - name: Create artifact directory
+        run: |
+          mkdir ${{ env.RELEASE_DIR }}
+          mkdir dist
+
+      - name: Create Build (Linux)
+        if: matrix.build == 'linux'
+        run: |
+          mv ./target/${{ env.LINUX_TARGET }}/release/torako ./${{ env.RELEASE_DIR }}/torako-${{ env.LINUX64_NAME }}
+
+      - name: Create Build (Windows)
+        if: matrix.build == 'windows'
+        shell: bash
+        run: |
+          mv ./target/release/torako.exe ./${{ env.RELEASE_DIR }}/torako-${{ env.WINDOWS64_NAME }}.exe
+
+      - name: Create Build (MacOS)
+        if: matrix.build == 'macos'
+        run: |
+          mv ./target/release/torako ./${{ env.RELEASE_DIR }}/torako-${{ env.MACOS64_NAME }}
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v1
+        with:
+          name: ${{ matrix.build }}
+          path: ./${{ env.RELEASE_DIR }}
+
+  release:
+    name: GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query version number
+        id: get_version
+        shell: bash
+        run: |
+          echo "using version tag ${GITHUB_REF:10}"
+          echo ::set-output name=version::"${GITHUB_REF:10}"
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.get_version.outputs.VERSION }}
+          release_name: ${{ steps.get_version.outputs.VERSION }}
+          draft: true
+
+      - name: Download Linux bundle
+        uses: actions/download-artifact@v1
+        with:
+          name: linux
+
+      - name: Download Windows bundle
+        uses: actions/download-artifact@v1
+        with:
+          name: windows
+
+      - name: Download MacOS bundle
+        uses: actions/download-artifact@v1
+        with:
+          name: macos
+
+      - name: Release Linux bundle
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./linux/torako-${{ env.LINUX64_NAME }}
+          asset_content_type: application/octet-stream
+          asset_name: torako-${{ env.LINUX64_NAME }}
+
+      - name: Release Windows bundle
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./windows/torako-${{ env.WINDOWS64_NAME }}.exe
+          asset_content_type: application/octet-stream
+          asset_name: torako-${{ env.WINDOWS64_NAME }}.exe
+
+      - name: Release MacOS bundle
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./macos/torako-${{ env.MACOS64_NAME }}
+          asset_content_type: application/octet-stream
+          asset_name: torako-${{ env.MACOS64_NAME }}
