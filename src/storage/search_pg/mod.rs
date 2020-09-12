@@ -159,9 +159,9 @@ impl SearchInner {
                             PLACEHOLDERS[z + 3], // subject
                             "),to_tsvector(",
                             PLACEHOLDERS[z + 4], // username
-                            "),",
+                            "),to_tsvector(",
                             PLACEHOLDERS[z + 5], // tripcode
-                            ",to_tsvector(",
+                            "),to_tsvector(",
                             PLACEHOLDERS[z + 6], // email
                             "),",
                             PLACEHOLDERS[z + 7], // unique_id
