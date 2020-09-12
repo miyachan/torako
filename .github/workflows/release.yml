@@ -6,6 +6,7 @@ on:
 name: Release
 
 env:
+  RELEASE_DIR: artifacts
   GITHUB_REF: "${{ github.ref }}"
   WINDOWS_TARGET: x86_64-pc-windows-msvc
   WINDOWS64_NAME: windows-amd64
