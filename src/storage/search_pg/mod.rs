@@ -169,9 +169,9 @@ impl SearchInner {
                             PLACEHOLDERS[z + 8], // since4_pass
                             ",",
                             PLACEHOLDERS[z + 9], // country
-                            ",to_tsvector(",
+                            ",to_tsvector(REPLACE(",
                             PLACEHOLDERS[z + 10], // filename
-                            "),",
+                            ",'.',' ')),",
                             PLACEHOLDERS[z + 11], // image_hash
                             ",",
                             PLACEHOLDERS[z + 12], // image_width
