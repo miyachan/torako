@@ -73,6 +73,8 @@ pub enum Error {
     MySQL(#[from] mysql_async::Error),
     #[error("io error: {}", .0)]
     IO(#[from] std::io::Error),
+    #[error("other io error")]
+    OtherIO,
     #[error("http error: {}", .0)]
     Http(#[from] reqwest::Error),
 }
@@ -117,6 +119,22 @@ impl Error {
             Error::B2(_) => true,
             Error::B2Unauthorized => true,
             _ => false,
+        }
+    }
+
+    fn try_downcast(self) -> Self {
+        match self {
+            Error::IO(err) => match err.kind() {
+                std::io::ErrorKind::Other => match err.into_inner() {
+                    Some(err) => match err.downcast::<Error>() {
+                        Ok(err) => *err,
+                        Err(_) => Error::OtherIO,
+                    },
+                    None => Error::OtherIO,
+                },
+                _ => Error::from(err),
+            },
+            _ => self,
         }
     }
 }
@@ -1251,6 +1269,7 @@ impl AsagiInner {
             match r.await {
                 Ok(_) => return Ok(()),
                 Err(err) => {
+                    let err = err.try_downcast();
                     if err.is_request_failure() {
                         if err.is_cloudflare() {
                             self.metrics.incr_cfblocked(1);

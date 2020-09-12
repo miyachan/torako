@@ -247,6 +247,7 @@ impl AsyncWrite for File {
             .send(Ok(Bytes::copy_from_slice(buf)));
         match x {
             Ok(_) => Poll::Ready(Ok(len)),
+            // maybe panic?
             Err(err) => Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, err))),
         }
     }
@@ -264,8 +265,11 @@ impl AsyncWrite for File {
             Poll::Ready(join_handle) => match join_handle {
                 Ok(r) => match r {
                     Ok(_) => Poll::Ready(Ok(())),
-                    Err(err) => Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, err))),
+                    Err(err) => {
+                        Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, Error::from(err))))
+                    }
                 },
+                // maybe panic?
                 Err(err) => Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, err))),
             },
         }
