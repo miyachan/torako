@@ -49,8 +49,8 @@ pub enum Error {
     InvalidUserGroup,
     #[error("Asagi was told to use the old directory structure which doesn't support low thread numbers.")]
     InvalidThreadOldDir,
-    #[error("The image had an invalid content length")]
-    ContentLength,
+    #[error("The image had an invalid content length: {}: {}", .1, .0)]
+    ContentLength(String, reqwest::StatusCode),
     #[error("A fatal error occured when trying to archive posts")]
     ArchiveError,
     #[error("A database deadlock error occured")]
@@ -1113,7 +1113,16 @@ impl AsagiInner {
 
             let sz = match dl_req.content_length() {
                 Some(a) => a as usize,
-                None => return Err(Error::ContentLength),
+                None => {
+                    if s3_download || b2_download {
+                        return Err(Error::ContentLength(
+                            dl_req.url().to_string(),
+                            dl_req.status(),
+                        ));
+                    } else {
+                        0
+                    }
+                }
             };
 
             let file_sink = match &self.fs_storage {
