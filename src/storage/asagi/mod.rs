@@ -128,7 +128,7 @@ impl Error {
                 std::io::ErrorKind::Other => match err.into_inner() {
                     Some(err) => match err.downcast::<Error>() {
                         Ok(err) => *err,
-                        Err(_) => Error::OtherIO,
+                        Err(err) => Error::IO(std::io::Error::new(std::io::ErrorKind::Other, err)),
                     },
                     None => Error::OtherIO,
                 },
