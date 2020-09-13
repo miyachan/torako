@@ -23,6 +23,7 @@ struct File {
 pub struct Backblaze {
     client: reqwest::Client,
     bucket_id: String,
+    bucket_name: String,
     key_id: String,
     key: String,
     authorization_token: AtomicPtr<String>,
@@ -33,6 +34,8 @@ pub struct Backblaze {
 
 #[derive(Debug, Deserialize, Clone)]
 struct B2AuthorizeAccount {
+    #[serde(rename = "accountId")]
+    account_id: String,
     #[serde(rename = "authorizationToken")]
     authorization_token: String,
     allowed: B2AuthorizeAccountAllowed,
@@ -49,6 +52,27 @@ struct B2AuthorizeAccountAllowed {
     capabilities: Vec<String>,
     #[serde(rename = "namePrefix")]
     name_prefix: Option<String>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+struct B2ListBucketsRequest {
+    #[serde(rename = "accountId")]
+    account_id: String,
+    #[serde(rename = "bucketId")]
+    bucket_id: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct B2ListBuckets {
+    buckets: Vec<B2ListBucket>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct B2ListBucket {
+    #[serde(rename = "bucketId")]
+    bucket_id: String,
+    #[serde(rename = "bucketName")]
+    bucket_name: String,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -88,7 +112,7 @@ impl Backblaze {
         return unsafe { (*ptr).as_ref() };
     }
 
-    async fn renew_token(&self) -> Result<(reqwest::Url, reqwest::Url), Error> {
+    async fn renew_token(&self) -> Result<(reqwest::Url, reqwest::Url, String), Error> {
         let token = self
             .client
             .get("https://api.backblazeb2.com/b2api/v2/b2_authorize_account")
@@ -121,7 +145,7 @@ impl Backblaze {
 
         self.set_auth_token(token.authorization_token);
 
-        Ok((token.download_url, token.api_url))
+        Ok((token.download_url, token.api_url, token.account_id))
     }
 
     pub async fn new<T: AsRef<str>, U: AsRef<str>, V: AsRef<str>>(
@@ -135,17 +159,48 @@ impl Backblaze {
         let mut backblaze = Self {
             client,
             bucket_id: String::from(bucket_id.as_ref()),
+            bucket_name: String::from(""),
             key_id: String::from(key_id.as_ref()),
             key: String::from(key.as_ref()),
-
             authorization_token: AtomicPtr::new(empty),
             download_url: reqwest::Url::parse("http://localhost/").unwrap(),
             api_url: reqwest::Url::parse("http://localhost/").unwrap(),
             check_exists,
         };
-        let (download_url, api_url) = backblaze.renew_token().await?;
+        let (download_url, api_url, account_id) = backblaze.renew_token().await?;
         backblaze.download_url = download_url;
         backblaze.api_url = api_url;
+
+        {
+            let mut lookup_url = backblaze.api_url.clone();
+            lookup_url.set_path("/b2api/v2/b2_list_buckets");
+            let r = backblaze
+                .client
+                .post(lookup_url)
+                .json(&B2ListBucketsRequest {
+                    account_id,
+                    bucket_id: backblaze.bucket_id.clone(),
+                })
+                .header(reqwest::header::AUTHORIZATION, backblaze.get_auth_token())
+                .send()
+                .and_then(|resp| async { resp.error_for_status() })
+                .and_then(|resp| resp.json::<B2ListBuckets>())
+                .map_err(|err| match err.status() {
+                    Some(reqwest::StatusCode::UNAUTHORIZED) => Error::B2Unauthorized,
+                    _ => Error::B2(err),
+                })
+                .await?;
+            match r
+                .buckets
+                .iter()
+                .find(|x| x.bucket_id == backblaze.bucket_id)
+            {
+                Some(bucket) => {
+                    backblaze.bucket_name = bucket.bucket_name.clone();
+                }
+                None => return Err(Error::B2Config("bucket not found")),
+            };
+        }
 
         Ok(backblaze)
     }
@@ -156,26 +211,32 @@ impl Backblaze {
         if !self.check_exists {
             return Ok(false);
         }
-        let mut file_url = self.download_url.clone();
-        file_url.set_path(&format!(
-            "/file/{}/{}",
-            self.bucket_id,
-            filepath.as_ref().to_string_lossy()
-        ));
-        let r = self
-            .client
-            .head(file_url)
-            .header(reqwest::header::AUTHORIZATION, self.get_auth_token())
-            .send()
-            .and_then(|resp| async { resp.error_for_status() })
-            .await;
-        match r {
-            Ok(_) => Ok(true),
-            Err(err) => match err.status() {
-                Some(reqwest::StatusCode::NOT_FOUND) => Ok(false),
-                Some(reqwest::StatusCode::UNAUTHORIZED) => Err(Error::B2Unauthorized),
-                _ => Err(Error::B2(err)),
-            },
+        loop {
+            // maybe use cloudflare URL if provided?
+            let mut file_url = self.download_url.clone();
+            file_url.set_path(&format!(
+                "/file/{}/{}",
+                self.bucket_name,
+                filepath.as_ref().to_string_lossy()
+            ));
+            let r = self
+                .client
+                .head(file_url)
+                .header(reqwest::header::AUTHORIZATION, self.get_auth_token())
+                .send()
+                .and_then(|resp| async { resp.error_for_status() })
+                .await;
+            break match r {
+                Ok(_) => Ok(true),
+                Err(err) => match err.status() {
+                    Some(reqwest::StatusCode::NOT_FOUND) => Ok(false),
+                    Some(reqwest::StatusCode::UNAUTHORIZED) => {
+                        self.renew_token().await?;
+                        continue;
+                    }
+                    _ => Err(Error::B2(err)),
+                },
+            };
         }
     }
 
@@ -184,23 +245,31 @@ impl Backblaze {
         filepath: T,
         size: usize,
     ) -> Result<impl AsyncWrite + Send, Error> {
-        let mut upload_url = self.api_url.clone();
-        upload_url.set_path("/b2api/v2/b2_get_upload_url");
-        let r = self
-            .client
-            .post(upload_url)
-            .json(&B2UploadUrlRequest {
-                bucket_id: self.bucket_id.clone(),
-            })
-            .header(reqwest::header::AUTHORIZATION, self.get_auth_token())
-            .send()
-            .and_then(|resp| async { resp.error_for_status() })
-            .and_then(|resp| resp.json::<B2UploadUrl>())
-            .map_err(|err| match err.status() {
-                Some(reqwest::StatusCode::UNAUTHORIZED) => Error::B2Unauthorized,
-                _ => Error::B2(err),
-            })
-            .await?;
+        let r = loop {
+            let mut upload_url = self.api_url.clone();
+            upload_url.set_path("/b2api/v2/b2_get_upload_url");
+            let r = self
+                .client
+                .post(upload_url)
+                .json(&B2UploadUrlRequest {
+                    bucket_id: self.bucket_id.clone(),
+                })
+                .header(reqwest::header::AUTHORIZATION, self.get_auth_token())
+                .send()
+                .and_then(|resp| async { resp.error_for_status() })
+                .and_then(|resp| resp.json::<B2UploadUrl>())
+                .await;
+            break match r {
+                Ok(r) => r,
+                Err(err) => match err.status() {
+                    Some(reqwest::StatusCode::UNAUTHORIZED) => {
+                        self.renew_token().await?;
+                        continue;
+                    }
+                    _ => return Err(Error::B2(err)),
+                },
+            };
+        };
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
