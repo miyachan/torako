@@ -1323,6 +1323,7 @@ impl AsagiInner {
                         .for_each(|download| match download {
                             Ok(_) => futures::future::ready(()),
                             Err((err, media, meta)) => {
+                                let err = err.try_downcast();
                                 if err.is_request_failure() {
                                     if err.is_cloudflare() {
                                         self.metrics.incr_cfblocked(1);
