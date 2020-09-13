@@ -77,6 +77,8 @@ pub enum Error {
     OtherIO,
     #[error("http error: {}", .0)]
     Http(#[from] reqwest::Error),
+    #[error("Unexpected request EOF")]
+    RequestEOF,
 }
 
 impl Error {
@@ -100,6 +102,7 @@ impl Error {
                     || (err.is_status() && err.status().unwrap().is_server_error())
             }
             Error::CloudFlareBlocked(_) => true,
+            Error::RequestEOF => true,
             _ => false,
         }
     }

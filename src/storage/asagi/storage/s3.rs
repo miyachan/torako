@@ -142,8 +142,8 @@ impl S3 {
 
 impl AsyncWrite for File {
     fn poll_write(
-        self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         let len = buf.len();
@@ -154,8 +154,26 @@ impl AsyncWrite for File {
             .send(Ok(Bytes::copy_from_slice(buf)));
         match x {
             Ok(_) => Poll::Ready(Ok(len)),
-            // Maybe panic?
-            Err(err) => Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, err))),
+            Err(_) => {
+                //reqwest was dropped somehow
+                match Pin::new(&mut self.upload).poll(cx) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(join_handle) => match join_handle {
+                        Ok(r) => match r {
+                            Ok(_) => Poll::Ready(Err(io::Error::new(
+                                io::ErrorKind::Other,
+                                Error::RequestEOF,
+                            ))),
+                            Err(err) => Poll::Ready(Err(io::Error::new(
+                                io::ErrorKind::Other,
+                                Error::Rusoto(Box::new(err)),
+                            ))),
+                        },
+                        // maybe panic?
+                        Err(err) => Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, err))),
+                    },
+                }
+            }
         }
     }
 
