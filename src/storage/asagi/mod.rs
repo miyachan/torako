@@ -93,7 +93,12 @@ impl Error {
 
     fn is_request_failure(&self) -> bool {
         match self {
-            Error::Http(err) => err.is_body() || err.is_request() || err.is_timeout(),
+            Error::Http(err) => {
+                err.is_body()
+                    || err.is_request()
+                    || err.is_timeout()
+                    || (err.is_status() && err.status().unwrap().is_server_error())
+            }
             Error::CloudFlareBlocked(_) => true,
             _ => false,
         }
