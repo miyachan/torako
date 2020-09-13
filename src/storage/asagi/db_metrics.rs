@@ -41,7 +41,7 @@ pub(super) async fn database_metrics(
             let stats = ps.borrow();
             let last_update = stats.modified;
             match &stats.metric {
-                Some(stats) if last_update.elapsed() > Duration::from_secs(60) => {
+                Some(stats) if last_update.elapsed() < Duration::from_secs(60) => {
                     (Some(stats.clone()), None)
                 }
                 _ => (None, Some(stats.lock.clone())),
