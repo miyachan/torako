@@ -1270,7 +1270,7 @@ impl AsagiInner {
                 Ok(_) => return Ok(()),
                 Err(err) => {
                     let err = err.try_downcast();
-                    if err.is_request_failure() {
+                    if err.is_request_failure() || err.is_b2() || err.is_s3() {
                         if err.is_cloudflare() {
                             self.metrics.incr_cfblocked(1);
                         }
@@ -1279,14 +1279,6 @@ impl AsagiInner {
                             tokio::time::delay_for(b).await;
                             continue;
                         }
-                    } else if err.is_s3() {
-                        error!("Uploading media to S3 failed: {}", err);
-                        self.failed.store(true, Ordering::SeqCst);
-                        return Err(err);
-                    } else if err.is_b2() {
-                        error!("Uploading media to B2 failed: {}", err);
-                        self.failed.store(true, Ordering::SeqCst);
-                        return Err(err);
                     }
                     error!("Downloading media failed: {}", err);
                     return Err(err);
@@ -1324,7 +1316,7 @@ impl AsagiInner {
                             Ok(_) => futures::future::ready(()),
                             Err((err, media, meta)) => {
                                 let err = err.try_downcast();
-                                if err.is_request_failure() {
+                                if err.is_request_failure() || err.is_b2() || err.is_s3() {
                                     if err.is_cloudflare() {
                                         self.metrics.incr_cfblocked(1);
                                     }
@@ -1333,14 +1325,6 @@ impl AsagiInner {
                                         "Downloading media failed, will retry later: {}",
                                         err
                                     ))
-                                } else if err.is_s3() {
-                                    error!("Uploading media to S3 failed: {}", err);
-                                    self.failed.store(true, Ordering::SeqCst);
-                                    futures::future::ready(())
-                                } else if err.is_b2() {
-                                    error!("Uploading media to B2 failed: {}", err);
-                                    self.failed.store(true, Ordering::SeqCst);
-                                    futures::future::ready(())
                                 } else {
                                     futures::future::ready(error!(
                                         "Downloading media failed: {}",
