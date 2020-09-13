@@ -10,7 +10,7 @@ Report any issues or features requests using GitHub Issues.
 
 ## Getting Started
 
-Builds are generated for Windows, Linux and macOS and are available on the GitHub releases page. Once downloaded, grab and modify the sample configuration and place it in the same directory as `Torako.toml` (You can also use the `-c` flag to specify a custom configuration path).
+Builds are generated for Windows, Linux and macOS and are available on the [GitHub releases page](https://github.com/miyachan/torako/releases). Once downloaded, grab and modify the sample configuration and place it in the same directory as `Torako.toml` (You can also use the `-c` flag to specify a custom configuration path).
 
 ```sh
 $ ./torako -c ./Torako.toml

@@ -607,7 +607,8 @@ impl AsagiInner {
                                                 Entry::Vacant(v) => {
                                                     let username = post.name.clone();
                                                     let trip = post.trip.clone();
-                                                    let mut u = stats::User::new(username, trip);
+                                                    let timestamp = post.datetime().map(|d| d.timestamp() as u64).unwrap_or(post.time);
+                                                    let mut u = stats::User::new(username, trip, timestamp);
                                                     u.update(&post);
                                                     v.insert(u);
                                                 }

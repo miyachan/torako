@@ -62,11 +62,11 @@ pub(super) struct User {
 }
 
 impl User {
-    pub(super) fn new(name: Option<String>, trip: Option<String>) -> Self {
+    pub(super) fn new(name: Option<String>, trip: Option<String>, first_seen: u64) -> Self {
         Self {
             name: name.unwrap_or(String::from("")),
             trip: trip.unwrap_or(String::from("")),
-            first_seen: 0,
+            first_seen,
             post_count: 0,
         }
     }
