@@ -92,6 +92,7 @@ pub(super) async fn database_metrics(
         POST_STATS.with(move |ps| {
             let mut l = ps.borrow_mut();
             l.metric = Some(Arc::new(stats));
+            l.modified = Instant::now();
         });
         drop(guard);
         continue;
