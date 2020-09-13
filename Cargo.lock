@@ -2705,6 +2705,7 @@ dependencies = [
  "mysql_async",
  "nix 0.18.0",
  "parking_lot",
+ "percent-encoding",
  "pretty_env_logger",
  "rand",
  "regex",

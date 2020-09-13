@@ -220,6 +220,7 @@ pub struct BoardStream {
     concurrency_limit: Option<Arc<tokio::sync::Semaphore>>,
     deleted_page_threshold: usize,
     metrics: Arc<Metrics>,
+    url_media_filename: bool,
 }
 
 impl BoardStream {
@@ -240,6 +241,7 @@ impl BoardStream {
         >,
         concurrency_limit: Option<Arc<tokio::sync::Semaphore>>,
         deleted_page_threshold: usize,
+        url_media_filename: bool,
     ) -> Self {
         let base_url = match tls {
             true => "https://localhost/",
@@ -267,6 +269,7 @@ impl BoardStream {
                 board: static_board,
                 ..Default::default()
             }),
+            url_media_filename,
         }
     }
 
@@ -300,6 +303,7 @@ impl Stream for BoardStream {
     type Item = Vec<Post>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Vec<Post>>> {
+        let url_media_filename = self.url_media_filename;
         loop {
             match &mut self.state {
                 State::Sleeping(_) => match Pin::new(&mut self.delay).poll(cx) {
@@ -542,6 +546,7 @@ impl Stream for BoardStream {
                                 // mark watched posts as retransmission,
                                 // make sure all posts are now watched
                                 for r in posts.iter_mut() {
+                                    r.url_media_filename = url_media_filename;
                                     if p.posts.contains_key(&r.no) {
                                         r.is_retransmission = true
                                     }

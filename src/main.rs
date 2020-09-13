@@ -94,6 +94,10 @@ async fn run_async(config: config::Config) -> i32 {
                     .deleted_page_threshold
                     .or(config.boards.deleted_page_threshold)
                     .unwrap_or(8),
+                board
+                    .url_media_filename
+                    .or(config.boards.url_media_filename)
+                    .unwrap_or(false),
             )
         })
         .collect::<Vec<_>>();

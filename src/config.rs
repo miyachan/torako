@@ -33,6 +33,7 @@ pub struct Board {
     pub deleted_page_threshold: Option<usize>,
     pub download_thumbs: Option<bool>,
     pub download_media: Option<bool>,
+    pub url_media_filename: Option<bool>,
 
     #[serde(flatten)]
     pub boards: FxHashMap<String, Board>,

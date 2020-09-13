@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS `%%BOARD%%` (
   `media_h` smallint unsigned NOT NULL DEFAULT '0',
   `media_size` int unsigned NOT NULL DEFAULT '0',
   `media_hash` varchar(25),
-  `media_orig` varchar(20),
+  `media_orig` varchar(191),
   `spoiler` bool NOT NULL DEFAULT '0',
   `deleted` bool NOT NULL DEFAULT '0',
   `capcode` varchar(1) NOT NULL DEFAULT 'N',
@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS `%%BOARD%%_users` (
 CREATE TABLE IF NOT EXISTS `%%BOARD%%_images` (
   `media_id` int unsigned NOT NULL auto_increment,
   `media_hash` varchar(25) NOT NULL,
-  `media` varchar(20),
+  `media` varchar(191),
   `preview_op` varchar(20),
   `preview_reply` varchar(20),
   `total` int(10) unsigned NOT NULL DEFAULT '0',

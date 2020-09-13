@@ -68,6 +68,14 @@ request_timeout = "30m"
 ## Any of the above options can be provided
 ## here for board specific options
 [boards.vip]
+#[boards.f]
+## The /f/ board uses the filename rather than the post time
+## Warning: Enabling this will enable media downloads, however
+## the standard Asagi schema did not take the longer filenames
+## into account. You must update the `media` length on the
+## `f_images` table to 191 and the `media_orig` length in the
+## `f` table if you are starting from an older DB.
+#url_media_filename = true
 
 [backend]
 [backend.asagi]

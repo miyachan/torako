@@ -15,6 +15,7 @@ use futures::prelude::*;
 use futures::task::AtomicWaker;
 use log::{debug, error, info, warn};
 use mysql_async::{prelude::*, TxOpts};
+use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use rand::Rng;
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Serialize;
@@ -33,6 +34,7 @@ pub use builder::AsagiBuilder;
 use thread::Thread;
 
 const MYSQL_ERR_CODE_DEADLOCK: u16 = 1213;
+const URLENCODE_FRAGMENT: &AsciiSet = &CONTROLS.add(b'%');
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -501,6 +503,11 @@ impl AsagiInner {
                                 } else {
                                     (None, post.preview_orig().clone())
                                 };
+                                let (preview_op, preview_reply) = match post.has_thumb() {
+                                    true => (preview_op, preview_reply),
+                                    false => (None, None)
+                                };
+
                                 let values: Box<[mysql_async::Value]> = Box::new([
                                     post.md5.clone().unwrap().into(),  // media_hash
                                     post.media_orig().unwrap().into(), // media
@@ -658,7 +665,7 @@ impl AsagiInner {
                                     post.tn_w.into(),             // preview_w
                                     post.tn_h.into(),             // preview_h,
                                     media_id.into(),              // media_id
-                                    post.media_filename().into(), // media_filename,
+                                    post.media_filename_decoded().into(), // media_filename,
                                     post.w.into(),                // media_w,
                                     post.h.into(),                // media_h,
                                     post.fsize.into(),            // media_size,
@@ -975,7 +982,19 @@ impl AsagiInner {
                 };
                 old_subdir
             }
-            false => PathBuf::from(format!("{}/{}", &filename[0..4], &filename[4..6])),
+            false => {
+                if filename.chars().count() >= 6 {
+                    if filename.is_ascii() {
+                        PathBuf::from(format!("{}/{}", &filename[0..4], &filename[4..6]))
+                    } else {
+                        let part1: String = filename.chars().take(4).collect();
+                        let part2: String = filename.chars().skip(4).take(2).collect();
+                        PathBuf::from(format!("{}/{}", part1, part2))
+                    }
+                } else {
+                    PathBuf::from("___/__")
+                }
+            }
         };
         let subdir = Path::new(board.as_ref())
             .join(match media_kind {
@@ -983,8 +1002,6 @@ impl AsagiInner {
                 MediaKind::Image => "image",
             })
             .join(subdir);
-        //if !subdir.exists() {
-
         return Ok(subdir.join(filename));
     }
 
@@ -1084,7 +1101,11 @@ impl AsagiInner {
                     Err(err) => return Err(err),
                 };
                 let mut media_url = self.media_url.clone();
-                media_url.set_path(&format!("/{}/{}", meta.board, &media_orig,));
+                media_url.set_path(&format!(
+                    "/{}/{}",
+                    meta.board,
+                    utf8_percent_encode(media_orig, URLENCODE_FRAGMENT)
+                ));
 
                 (media_orig, filename, media_url)
             }
@@ -1108,8 +1129,8 @@ impl AsagiInner {
         // if !filename.exists() {
         if fs_download || s3_download || b2_download {
             match kind {
-                MediaKind::Thumb => debug!("Downloading media {:?}", url),
-                MediaKind::Image => debug!("Downloading thumb {:?}", url),
+                MediaKind::Thumb => debug!("Downloading thumb {:?}", url),
+                MediaKind::Image => debug!("Downloading media {:?}", url),
             };
             let dl_start = Instant::now();
             let dl_req = self
@@ -1246,10 +1267,11 @@ impl AsagiInner {
             return Ok(());
         }
 
-        let is_swf = match &media.media {
-            Some(s) => s.ends_with(".swf"),
-            None => false,
-        };
+        let has_thumb = media
+            .preview_op
+            .as_ref()
+            .or(media.preview_reply.as_ref())
+            .is_some();
 
         let thumb_future = async {
             self.concurrent_downloads.fetch_add(1, Ordering::AcqRel);
@@ -1263,7 +1285,7 @@ impl AsagiInner {
         };
         let media_future = media_future.inspect(|_| self.notify_download(1));
 
-        match (dl_media, (dl_thumb && !is_swf)) {
+        match (dl_media, (dl_thumb && has_thumb)) {
             (true, true) => {
                 futures::future::join(thumb_future, media_future)
                     .map(|(a, b)| a.and(b))

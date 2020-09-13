@@ -146,6 +146,8 @@ pub struct Post {
     pub deleted_at: Option<u64>,
     #[serde(default, skip)]
     pub is_retransmission: bool,
+    #[serde(default, skip)]
+    pub url_media_filename: bool,
 }
 
 impl Post {
@@ -186,7 +188,17 @@ impl Post {
             .map(|x| x.to_string() + self.ext.as_ref().unwrap())
     }
 
+    pub fn media_filename_decoded(&self) -> Option<String> {
+        self.filename.as_ref().map(|x| {
+            htmlescape::decode_html(x).unwrap_or_else(|_| x.to_string())
+                + self.ext.as_ref().unwrap()
+        })
+    }
+
     pub fn media_orig(&self) -> Option<String> {
+        if self.url_media_filename {
+            return self.media_filename();
+        }
         self.tim
             .as_ref()
             .zip(self.ext.as_ref())
@@ -253,6 +265,10 @@ impl Post {
             }
             None => 0,
         }
+    }
+
+    pub fn has_thumb(&self) -> bool {
+        self.tn_h > 0 && self.tn_w > 0
     }
 
     pub fn has_media(&self) -> bool {
