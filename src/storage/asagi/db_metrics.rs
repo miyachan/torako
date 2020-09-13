@@ -74,9 +74,21 @@ pub(super) async fn database_metrics(
                 .buffer_unordered(usize::MAX),
         );
 
-        let mut stats = stats.try_collect::<FxHashMap<&'static str, u64>>().await?;
-        let total: u64 = stats.iter().map(|x| x.1).copied().sum();
-        stats.insert("_total", total);
+        let fut = stats.try_collect::<FxHashMap<&'static str, u64>>();
+        let stats = match tokio::time::timeout(Duration::from_secs(15), fut).await {
+            Ok(f) => {
+                let mut stats = f?;
+                let total: u64 = stats.iter().map(|x| x.1).copied().sum();
+                stats.insert("_total", total);
+                stats
+            }
+            Err(_) => {
+                let mut stats = FxHashMap::default();
+                stats.insert("_timedout", 1);
+                stats
+            }
+        };
+
         POST_STATS.with(move |ps| {
             let mut l = ps.borrow_mut();
             l.metric = Some(Arc::new(stats));
