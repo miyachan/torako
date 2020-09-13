@@ -59,11 +59,11 @@ pub enum Error {
     B2Config(&'static str),
     #[error("Failed to authorize against Backblaze")]
     B2Unauthorized,
-    #[error("A fatal error occured trying to communicate with Backblaze: {}", .0)]
+    #[error("Backblaze: {}", .0)]
     B2(reqwest::Error),
-    #[error("A fatal error occured trying to communicate with S3: {}", .0)]
+    #[error("S3: {}", .0)]
     S3(String),
-    #[error("A fatal error occured trying to communicate with S3: {}", .0)]
+    #[error("S3: {}", .0)]
     Rusoto(Box<dyn std::error::Error + Send + Sync>),
     #[error("Invalid Temporary Directory: {:?}", .0)]
     InvalidTempDir(PathBuf),
@@ -1156,7 +1156,8 @@ impl AsagiInner {
                 Some(fs) if b2_download => match fs.open(&filename, sz).await {
                     Ok(f) => Some(f),
                     Err(err) => {
-                        error!("Open failed: {}", err);
+                        // https://www.backblaze.com/blog/b2-503-500-server-error/
+                        // error!("Open failed: {}", err);
                         Err(err)?
                     }
                 },
