@@ -1258,6 +1258,7 @@ impl AsagiInner {
         meta: MediaDescriptor,
     ) -> Result<(), Error> {
         let mut backoff = backoff::ExponentialBackoff::default();
+        backoff.max_elapsed_time = Some(Duration::from_secs(3600));
         loop {
             self.inflight_media.fetch_add(1, Ordering::Relaxed);
             let r = self.download_tokens.acquire().then(|permit| async {

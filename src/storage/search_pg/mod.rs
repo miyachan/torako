@@ -134,8 +134,9 @@ impl SearchInner {
         let client = self.db_pool.get().await?;
         while item.len() > 0 {
             let start = Instant::now();
-            let (remain, posts) = if item.len() > 2000 {
-                let remain = item.split_off(2000);
+            // Postgres only supports a maximum of 2^15 params
+            let (remain, posts) = if item.len() > 1280 {
+                let remain = item.split_off(1280);
                 (remain, item)
             } else {
                 (vec![], item)
