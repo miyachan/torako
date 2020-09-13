@@ -6,12 +6,15 @@ use std::task::{Context, Poll};
 
 use bytes::Bytes;
 use futures::prelude::*;
+use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWrite;
 use tokio::sync::mpsc::UnboundedSender;
 use void::Void;
 
 use super::Error;
+
+const URLENCODE_FRAGMENT: &AsciiSet = &NON_ALPHANUMERIC.remove(b'/').remove(b'.');
 
 struct File {
     sender: Option<UnboundedSender<Result<Bytes, Void>>>,
@@ -217,7 +220,10 @@ impl Backblaze {
             file_url.set_path(&format!(
                 "/file/{}/{}",
                 self.bucket_name,
-                filepath.as_ref().to_string_lossy()
+                utf8_percent_encode(
+                    filepath.as_ref().to_string_lossy().as_ref(),
+                    URLENCODE_FRAGMENT
+                )
             ));
             let r = self
                 .client
@@ -287,7 +293,11 @@ impl Backblaze {
             .header(reqwest::header::CONTENT_LENGTH, size)
             .header(
                 "X-Bz-File-Name",
-                filepath.as_ref().to_string_lossy().to_string(),
+                utf8_percent_encode(
+                    filepath.as_ref().to_string_lossy().as_ref(),
+                    URLENCODE_FRAGMENT,
+                )
+                .to_string(),
             )
             .header("X-Bz-Content-Sha1", "do_not_verify")
             .header("X-Bz-Info-b2-cache-control", "public%2C+max-age=31104000")
