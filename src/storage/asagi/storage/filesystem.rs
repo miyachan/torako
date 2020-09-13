@@ -17,6 +17,7 @@ use super::Error;
 enum FileState {
     Open,
     Rename(Pin<Box<dyn Future<Output = io::Result<()>> + Send>>),
+    #[allow(dead_code)]
     Permission(Pin<Box<dyn Future<Output = io::Result<()>> + Send>>),
 }
 
