@@ -1246,6 +1246,11 @@ impl AsagiInner {
             return Ok(());
         }
 
+        let is_swf = match &media.media {
+            Some(s) => s.ends_with(".swf"),
+            None => false,
+        };
+
         let thumb_future = async {
             self.concurrent_downloads.fetch_add(1, Ordering::AcqRel);
             self.download_media(MediaKind::Thumb, media, meta).await
@@ -1258,7 +1263,7 @@ impl AsagiInner {
         };
         let media_future = media_future.inspect(|_| self.notify_download(1));
 
-        match (dl_media, dl_thumb) {
+        match (dl_media, (dl_thumb && !is_swf)) {
             (true, true) => {
                 futures::future::join(thumb_future, media_future)
                     .map(|(a, b)| a.and(b))
