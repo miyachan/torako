@@ -1,3 +1,5 @@
+#![type_length_limit = "1666740"]
+
 #[cfg(all(feature = "jemalloc", not(target_env = "msvc")))]
 use jemallocator::Jemalloc;
 
@@ -11,7 +13,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use clap::{crate_version, App, Arg, ArgMatches};
+use clap::{crate_version, App, AppSettings, Arg, ArgMatches, SubCommand};
 use futures::prelude::*;
 use log::{error, info, warn};
 use pretty_env_logger;
@@ -22,6 +24,7 @@ mod config;
 mod feed;
 mod imageboard;
 mod storage;
+mod util;
 
 pub use feed::FeedSinkExt;
 
@@ -262,6 +265,13 @@ async fn run_async(config: config::Config) -> i32 {
 }
 
 fn run<'a>(matches: ArgMatches<'a>) -> i32 {
+    match matches.subcommand() {
+        #[cfg(feature = "pgs-reindex")]
+        ("pgs-reindex", Some(sub)) => return util::pgs::reindex(sub),
+        ("boo", Some(sub)) => return util::boo(sub),
+        _ => (),
+    };
+
     let config: config::Config = {
         let config_str = match std::fs::read_to_string(matches.value_of("config").unwrap()) {
             Ok(s) => s,
@@ -312,6 +322,45 @@ fn main() {
     }
     pretty_env_logger::try_init_timed_custom_env("TORAKO_LOG").unwrap();
 
+    let pgs_reindex: Option<App<'_, '_>> = {
+        #[cfg(feature = "pgs-reindex")]
+        {
+            let num_cpus: &'static str = Box::leak(num_cpus::get().to_string().into_boxed_str());
+            Some(
+                SubCommand::with_name("pgs-reindex")
+                    .about("Reindex a postgres search database from MySQL Asagi")
+                    .arg(
+                        Arg::with_name("postgres")
+                            .long("postgres")
+                            .value_name("POSTGRES URL")
+                            .takes_value(true)
+                            .required(true),
+                    )
+                    .arg(
+                        Arg::with_name("mysql")
+                            .long("mysql")
+                            .value_name("MYSQL URL")
+                            .takes_value(true)
+                            .required(true),
+                    )
+                    .arg(
+                        Arg::with_name("write-streams")
+                            .long("write-streams")
+                            .value_name("COUNT")
+                            .default_value(num_cpus)
+                            .takes_value(true)
+                            .required(true),
+                    )
+                    .arg(Arg::with_name("boards").multiple(true).required(true)),
+            )
+        }
+
+        #[cfg(not(feature = "pgs-reindex"))]
+        {
+            None
+        }
+    };
+
     let matches = App::new("Torako")
         .author("github.com/miyachan")
         .about("Torako: Imageboard archiver backend.")
@@ -326,6 +375,8 @@ fn main() {
                 .default_value("./Torako.toml")
                 .env("CONFIG"),
         )
+        .subcommand(SubCommand::with_name("boo").setting(AppSettings::Hidden))
+        .subcommands(pgs_reindex.into_iter())
         .get_matches();
 
     match run(matches) {

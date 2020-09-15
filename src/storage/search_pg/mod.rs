@@ -21,7 +21,7 @@ mod placeholders;
 
 use crate::imageboard;
 pub use builder::SearchBuilder;
-use placeholders::PLACEHOLDERS;
+pub use placeholders::PLACEHOLDERS;
 
 #[derive(Debug, Error)]
 pub enum Error {
