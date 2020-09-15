@@ -40,6 +40,8 @@ const URLENCODE_FRAGMENT: &AsciiSet = &CONTROLS.add(b'%');
 pub enum Error {
     #[error("no boards selected")]
     NoBoards,
+    #[error("There was a problem processing the Bloom filter")]
+    Bloom,
     #[error("invalid database URL provided")]
     InvalidDatabase,
     #[error("invalid media directory")]

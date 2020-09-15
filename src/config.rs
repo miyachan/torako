@@ -145,6 +145,18 @@ pub struct AsagiB2Storage {
     pub bucket_id: String,
     #[serde(default)]
     pub check_exists: Option<bool>,
+    #[serde(default)]
+    pub bloom: AsagiB2StorageBloom,
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct AsagiB2StorageBloom {
+    pub disabled: Option<bool>,
+    pub file_key: Option<String>,
+    pub initial_bit_count: Option<NonZeroUsize>,
+    pub false_positive_rate: Option<f64>,
+    #[serde(with = "humantime_serde")]
+    pub upload_frequency: Option<Duration>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
