@@ -13,7 +13,7 @@ The original Asagi implementation had a `timestamp` column that was the seconds 
 It's safe to drop some indexes; having a lot of indexes can cause memory and disk usage to blow up, and slow down inserts. They are a waste if they are never used. FoolFuuka doesn't seem to use these indexes (or in some other cases the indexes are worthless because other WHERE conditions make the result set relatively small, or the seatch is better served by the search index). The size column represents a table with more than 100M rows.
 
 | Table | Index Name | Size (MiB) |
-| -- | -- | -- | -- |
+| -- | -- | -- |
 | %%BOARD%% | subnum_index | 1462.00 |
 | %%BOARD%% | op_index | 1015.00 |
 | %%BOARD%% | media_hash_index | 2770.69 |
