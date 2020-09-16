@@ -36,8 +36,8 @@ impl Thread {
         let post_timestamp = post.nyc_timestamp() as u64;
         if post.is_op() {
             self.time_op = Some(post_timestamp);
-            self.sticky = Some(post.sticky);
-            self.locked = Some(post.closed);
+            // self.sticky = Some(post.sticky);
+            // self.locked = Some(post.closed);
         }
         self.time_last = self.time_last.max(post_timestamp);
         self.time_last_modified = self.time_last;
@@ -45,8 +45,6 @@ impl Thread {
             self.time_bump = self.time_bump.max(post_timestamp);
         }
 
-        // How is overcounting prevented here
-        // without checking the database?
         self.n_replies += 1;
         self.n_images += match post.filename {
             Some(_) => 1,
