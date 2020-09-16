@@ -194,6 +194,23 @@ media_path = "/var/lib/torako"
 ## exists, and always redownload. (Default: true)
 #check_exists = false
 
+#[backend.asagi.media_storage.b2.bloom]
+## If we opt to check_exists, then every time to check
+## for a file, we will incur a Class B charge with B2 at a rate of
+## $0.004 per 10,000. We can minimize this by using a bloom filter.
+## If the bloom filter returns negative then we know we don't have
+## the image, and we will download it.
+
+## How often the bloomfilter is persisted to B2
+# upload_frequency = "5m"
+
+## The filename to save the bloom filter under.
+# file_key = "torako.bloom"
+
+## initial_bit_count = 100000000
+
+##false_positive_rate = 0.05
+
 [backend.asagi.database]
 ## Database URL. Usually in the format of
 ## mysql://username:password@host/db_name.
