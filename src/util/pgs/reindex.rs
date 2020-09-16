@@ -14,6 +14,7 @@ use thiserror::Error;
 use tokio_postgres::types::ToSql;
 
 use crate::storage::search_pg::PLACEHOLDERS;
+use crate::util::interval_lock::IntervalLock;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -92,8 +93,7 @@ fn lookup_query<T: AsRef<str>>(board: T) -> String {
     `op`,
     `capcode`
 FROM
-    `{}`
-ORDER BY `num` ASC",
+    `{}`",
         board.as_ref(),
         board.as_ref()
     )
@@ -209,7 +209,7 @@ impl PGSReIndex {
                         m.join()
                     }));
                 }
-
+                let interval_lock: IntervalLock = Default::default();
                 let lookup = lookup_query(&info.board);
                 let pg_pool = pg_pool.clone();
                 async move {
@@ -217,12 +217,20 @@ impl PGSReIndex {
                         .fetch(&mut conn)
                         .chunks(1280)
                         .map(|posts| {
-                            posts
+                            let (mut low, mut high) = (u64::MAX, 0);
+                            let posts = posts
                                 .into_iter()
+                                .inspect(|post| {
+                                    if let Ok(post) = post {
+                                        low = low.min(post.num as u64);
+                                        high = high.max(post.num as u64);
+                                    }
+                                })
                                 .collect::<Result<Vec<Post>, _>>()
-                                .map_err(|err| Error::from(err))
+                                .map_err(|err| Error::from(err));
+                            posts.map(|posts| (posts, (low, high)))
                         })
-                        .map_ok(|posts| {
+                        .map_ok(|(posts, idx_range)| {
                             let rows = posts.len();
                             let query = "INSERT INTO
                                         posts
@@ -323,18 +331,24 @@ impl PGSReIndex {
                                 .flatten()
                                 .collect::<Vec<Box<dyn ToSql>>>();
 
-                            pg_pool.get().map_err(|err| Error::from(err)).and_then(
-                                move |pg_conn| async move {
-                                    pg_conn
-                                        .execute_raw(
-                                            stmt.as_str(),
-                                            params.iter().map(|x| x.as_ref()),
-                                        )
-                                        .map_ok(|written| (written, rows))
-                                        .map_err(|err| Error::from(err))
-                                        .await
-                                },
-                            )
+                            interval_lock
+                                .acquire(idx_range)
+                                .map(move |g| (g, rows))
+                                .then(|(guard, rows)| {
+                                    pg_pool.get().map_err(|err| Error::from(err)).and_then(
+                                        move |pg_conn| async move {
+                                            pg_conn
+                                                .execute_raw(
+                                                    stmt.as_str(),
+                                                    params.iter().map(|x| x.as_ref()),
+                                                )
+                                                .map_ok(|written| (written, rows))
+                                                .map_err(|err| Error::from(err))
+                                                .inspect(move |_| drop(guard))
+                                                .await
+                                        },
+                                    )
+                                })
                         })
                         .try_buffer_unordered(write_streams)
                         .try_fold(0, |acc, (written, rows)| {

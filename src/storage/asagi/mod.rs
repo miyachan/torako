@@ -24,12 +24,11 @@ use tokio::io::AsyncWriteExt;
 
 mod builder;
 mod db_metrics;
-mod interval_lock;
 mod stats;
 pub mod storage;
 mod thread;
 
-use crate::imageboard;
+use crate::{imageboard, util::interval_lock};
 pub use builder::AsagiBuilder;
 use thread::Thread;
 
