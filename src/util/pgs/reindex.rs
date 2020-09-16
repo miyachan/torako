@@ -21,9 +21,9 @@ pub enum Error {
     InvalidPoolSize,
     #[error("invalid database URL provided: {}", .0)]
     InvalidDatabase(tokio_postgres::Error),
-    #[error("database connection error: {}", .0)]
+    #[error("pg database connection error: {}", .0)]
     Pool(#[from] deadpool_postgres::PoolError),
-    #[error("database error: {}", .0)]
+    #[error("pg database error: {}", .0)]
     DB(#[from] tokio_postgres::Error),
     #[error("io error: {}", .0)]
     IO(#[from] std::io::Error),
@@ -92,7 +92,8 @@ fn lookup_query<T: AsRef<str>>(board: T) -> String {
     `op`,
     `capcode`
 FROM
-    `{}`",
+    `{}`
+ORDER BY `num` ASC",
         board.as_ref(),
         board.as_ref()
     )
