@@ -1,4 +1,4 @@
-#![type_length_limit = "4289740"]
+#![type_length_limit = "5136020"]
 
 #[cfg(all(feature = "jemalloc", not(target_env = "msvc")))]
 use jemallocator::Jemalloc;
