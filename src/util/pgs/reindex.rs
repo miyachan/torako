@@ -361,10 +361,13 @@ impl PGSReIndex {
                             pb.inc(rows as u64);
                             futures::future::ready(Ok(acc + written))
                         })
-                        .inspect(|_| {
-                            pb.finish_with_message(&info.board);
+                        .inspect(|r| {
+                            if r.is_ok() {
+                                pb.finish_with_message(&info.board);
+                            } else{
+                                pb.finish_at_current_pos();
+                            }
                         })
-                        .map_ok(|rows| rows)
                         .await
                 }
             })
