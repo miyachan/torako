@@ -10,6 +10,7 @@ use clap::ArgMatches;
 use futures::prelude::*;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use log::{error, info};
+use memchr::memchr;
 use thiserror::Error;
 use tokio_postgres::types::ToSql;
 
@@ -302,19 +303,19 @@ impl PGSReIndex {
                                         Box::new(post.board),
                                         Box::new(post.thread_num as i64),
                                         Box::new(post.num as i64),
-                                        Box::new(post.title),
-                                        Box::new(post.name),
-                                        Box::new(post.trip),
-                                        Box::new(post.email),
-                                        Box::new(post.poster_hash),
+                                        Box::new(post.title.map(str_sanitize)),
+                                        Box::new(post.name.map(str_sanitize)),
+                                        Box::new(post.trip.map(str_sanitize)),
+                                        Box::new(post.email.map(str_sanitize)),
+                                        Box::new(post.poster_hash.map(str_sanitize)),
                                         Box::new(None::<i32>),
-                                        Box::new(post.poster_country),
-                                        Box::new(post.media_filename),
-                                        Box::new(post.media_hash),
+                                        Box::new(post.poster_country.map(str_sanitize)),
+                                        Box::new(post.media_filename.map(str_sanitize)),
+                                        Box::new(post.media_hash.map(str_sanitize)),
                                         Box::new(post.media_w.map(|x| x as i32)),
                                         Box::new(post.media_h.map(|x| x as i32)),
                                         Box::new(post.timestamp),
-                                        Box::new(post.comment),
+                                        Box::new(post.comment.map(str_sanitize)),
                                         Box::new(post.deleted),
                                         Box::new(false),
                                         Box::new(post.sticky),
@@ -322,7 +323,12 @@ impl PGSReIndex {
                                         Box::new(post.op),
                                         Box::new(
                                             post.capcode
-                                                .map(|c| c.chars().next().map(|c| c as i32))
+                                                .map(|c| {
+                                                    c.chars()
+                                                        .filter(char::is_ascii)
+                                                        .next()
+                                                        .map(|c| c as i32)
+                                                })
                                                 .flatten(),
                                         ),
                                     ]);
@@ -358,9 +364,7 @@ impl PGSReIndex {
                         .inspect(|_| {
                             pb.finish_with_message(&info.board);
                         })
-                        .map_ok(|rows| {
-                            rows
-                        })
+                        .map_ok(|rows| rows)
                         .await
                 }
             })
@@ -369,6 +373,13 @@ impl PGSReIndex {
 
         info!("Finished. Modified {} rows.", rows);
         Ok(())
+    }
+}
+
+fn str_sanitize(input: String) -> String {
+    match memchr(0, input.as_bytes()) {
+        Some(_) => input.replace(char::from(0), ""),
+        None => input,
     }
 }
 

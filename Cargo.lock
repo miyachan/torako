@@ -3022,6 +3022,7 @@ dependencies = [
  "jemallocator",
  "lazy_static",
  "log",
+ "memchr",
  "mime_guess",
  "mysql_async",
  "nix 0.18.0",
