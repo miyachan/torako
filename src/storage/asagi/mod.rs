@@ -936,13 +936,16 @@ impl AsagiInner {
                                     let thread_no = posts[0].thread_no();
                                     let post_no = posts[0].no;
                                     error!(
-                                        "Failed to save posts, will retry [First]: {}/{}/{}: {}",
-                                        board, thread_no, post_no, err
+                                        "Failed to save posts, will retry (at: {}) [First]: {}/{}/{}: {}",
+                                        attempts, board, thread_no, post_no, err
                                     );
                                     attempts += 1;
                                     if let Some(b) = backoff.next_backoff() {
                                         tokio::time::delay_for(b).await;
                                     }
+                                    // try to get a new connection in case
+                                    // the error is a problem with the connection
+                                    conn = self.get_db_conn().await?;
                                     continue;
                                 }
                             }
