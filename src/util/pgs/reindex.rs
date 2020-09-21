@@ -364,7 +364,7 @@ impl PGSReIndex {
                         .inspect(|r| {
                             if r.is_ok() {
                                 pb.finish_with_message(&info.board);
-                            } else{
+                            } else {
                                 pb.finish_at_current_pos();
                             }
                         })

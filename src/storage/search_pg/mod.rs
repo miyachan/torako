@@ -11,6 +11,7 @@ use backoff::backoff::Backoff;
 use futures::prelude::*;
 use futures::task::AtomicWaker;
 use log::{debug, error, warn};
+use memchr::memchr;
 use serde::Serialize;
 use thiserror::Error;
 use tokio_postgres::types::ToSql;
@@ -234,7 +235,7 @@ impl SearchInner {
                         &posts[i].w,
                         &posts[i].h,
                         i64_rena.alloc(Some(posts[i].time as i64)),
-                        str_rena.alloc(posts[i].comment()),
+                        str_rena.alloc(posts[i].comment().map(|x| str_sanitize(x))),
                         &posts[i].deleted,
                         &false,
                         &posts[i].sticky,
@@ -376,5 +377,12 @@ impl Sink<Vec<imageboard::Post>> for Search {
             true => Poll::Ready(Ok(())),
             false => Poll::Pending,
         }
+    }
+}
+
+fn str_sanitize(input: String) -> String {
+    match memchr(0, input.as_bytes()) {
+        Some(_) => input.replace(char::from(0), ""),
+        None => input,
     }
 }
