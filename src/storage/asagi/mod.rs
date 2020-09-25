@@ -478,6 +478,7 @@ impl AsagiInner {
                     let mut tx = conn.start_transaction(TxOpts::default()).await?;
                     let result = async {
                         let mut media_map = FxHashMap::default();
+                        let mut dups = 0;
                         let media_params = posts
                             .iter()
                             .filter(|p| {
@@ -488,9 +489,12 @@ impl AsagiInner {
                             .enumerate()
                             .filter_map(|(i, post)| {
                                 match media_map.entry(post.md5.clone().unwrap()) {
-                                    Entry::Occupied(_) => return None,
+                                    Entry::Occupied(_) => {
+                                        dups += 1;
+                                        return None
+                                    },
                                     Entry::Vacant(v) => {
-                                        v.insert(i);
+                                        v.insert(i - dups);
                                     }
                                 };
                                 let (preview_op, preview_reply) = if post.is_op() {
