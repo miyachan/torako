@@ -23,10 +23,10 @@ use thiserror::Error;
 use tokio::io::AsyncWriteExt;
 
 mod builder;
-mod db_metrics;
 mod stats;
 pub mod storage;
 mod thread;
+// mod db_metrics;
 
 use crate::{imageboard, util::interval_lock};
 pub use builder::AsagiBuilder;
@@ -205,7 +205,7 @@ pub struct Metrics {
     pub inflight_media: usize,
     pub cloudflare_blocked: u64,
     pub save_errors: u64,
-    pub database: Option<db_metrics::DatabaseMetrics>,
+    // pub database: Option<db_metrics::DatabaseMetrics>,
 }
 
 #[derive(Default, Debug)]
@@ -258,7 +258,7 @@ impl super::MetricsProvider for AsagiMetricsProvider {
         &self,
     ) -> Pin<Box<dyn std::future::Future<Output = Box<dyn erased_serde::Serialize + Send>> + Send>>
     {
-        let mut m = Metrics {
+        let m = Metrics {
             posts: self.inner.metrics.posts.load(Ordering::Acquire),
             thumbs: self.inner.metrics.thumbs.load(Ordering::Acquire),
             media: self.inner.metrics.media.load(Ordering::Acquire),
@@ -269,17 +269,11 @@ impl super::MetricsProvider for AsagiMetricsProvider {
             inflight_media: self.inner.inflight_media.load(Ordering::Acquire),
             cloudflare_blocked: self.inner.metrics.cf_blocked.load(Ordering::Acquire),
             save_errors: self.inner.metrics.save_errors.load(Ordering::Acquire),
-            database: None,
+            // database: None,
         };
 
-        let boards: Vec<&'static str> = self.inner.boards.iter().map(|b| *b.0).collect();
-        db_metrics::database_metrics(self.inner.clone(), boards)
-            .map(move |metrics| {
-                m.database = metrics.ok();
-                let m: Box<dyn erased_serde::Serialize + Send> = Box::new(m);
-                m
-            })
-            .boxed()
+        let m: Box<dyn erased_serde::Serialize + Send> = Box::new(m);
+        futures::future::ready(m).boxed()
     }
 }
 
