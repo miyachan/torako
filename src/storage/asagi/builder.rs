@@ -311,7 +311,7 @@ impl AsagiBuilder {
                     &conf.application_key_id,
                     &conf.application_key,
                     conf.check_exists.unwrap_or(true),
-                    Some(conf.bloom.clone()),
+                    conf.bloom.clone(),
                 )
                 .await?,
             ),

@@ -146,9 +146,10 @@ pub struct AsagiB2Storage {
     #[serde(default)]
     pub check_exists: Option<bool>,
     #[serde(default)]
-    pub bloom: AsagiB2StorageBloom,
+    pub bloom: Option<AsagiB2StorageBloom>,
 }
 
+#[serde(default)]
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct AsagiB2StorageBloom {
     pub disabled: Option<bool>,
