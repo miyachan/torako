@@ -208,7 +208,7 @@ impl SearchInner {
                     " ON CONFLICT (board, post_no) DO UPDATE SET
                     deleted = EXCLUDED.deleted,
                     sticky = EXCLUDED.sticky,
-                    comment = EXCLUDED.comment;
+                    comment = COALESCE(EXCLUDED.comment, posts.comment);
                 ",
                 )))
                 .collect::<String>();
