@@ -519,8 +519,9 @@ impl AsagiInner {
                             .flatten()
                             .collect::<Vec<_>>();
 
-                        let id_lowmark = if self.without_triggers && media_params.len() > 0 {
-                            let rows = media_params.len() / 5;
+                        let num_images = media_params.len() / 5;
+                        let (id_lowmark, affected) = if self.without_triggers && media_params.len() > 0 {
+                            let rows = num_images;
 
                             /*
                              * When batch inserting into MySQL, the generated IDs are
@@ -557,11 +558,54 @@ impl AsagiInner {
                                 }
                                 Err(err) => return Err(err),
                             };
-
-                            media_results.last_insert_id().unwrap() as usize
+                            let affected = media_results.affected_rows() as usize;
+                            match affected > num_images {
+                                true => (0, affected),
+                                false => (media_results.last_insert_id().unwrap() as usize, affected)
+                            }
                         } else {
-                            0
+                            (0, 0)
                         };
+
+                        /*
+                         * For INSERT ... ON DUPLICATE KEY UPDATE statements,
+                         * the affected-rows value per row is 1 if the row is
+                         * inserted as a new row, 2 if an existing row is
+                         * updated, and 0 if an existing row is set to its
+                         * current values.
+                         */
+                        if affected > num_images && affected > 0 {
+                            // this means we updated some rows
+                            // in this case the ids aren't going to be
+                            // monotonically increasing so we must query
+                            // for all media ids
+                            let values = posts
+                                .iter()
+                                .filter(|p| {
+                                    p.has_media()
+                                        && self.without_triggers
+                                        && !(p.is_retransmission || p.deleted)
+                                })
+                                .map(|post| mysql_async::Value::from(post.md5.clone().unwrap()))
+                                .collect::<Vec<_>>();
+                            let placeholders = std::iter::once("?")
+                                .chain((0..values.len() - 1).map(|_| ", ?"))
+                                .collect::<String>();
+                            let stmt = format!(
+                                "SELECT media_hash, media_id FROM `{}_images` WHERE media_hash IN ({})",
+                                &board, placeholders
+                            );
+
+                            tx
+                                .exec_map(
+                                    stmt.as_str(),
+                                    values,
+                                    |(media_hash, media_id)| {
+                                        media_map.insert(media_hash, media_id)
+                                    },
+                                )
+                                .await?;
+                        }
 
                         let mut threads: FxHashMap<u64, Thread> = FxHashMap::default();
                         let mut daily: FxHashMap<u64, stats::Daily> = FxHashMap::default();
