@@ -1495,7 +1495,17 @@ impl AsagiInner {
 
     fn truncate_meta_field(&self, v: String) -> String {
         if self.truncate_fields && v.len() > 100 {
-            String::from(&v[..100])
+            let mut sz = 0;
+            v.chars()
+                .take_while(|chr| {
+                    if sz + chr.len_utf8() > 100 {
+                        false
+                    } else {
+                        sz += chr.len_utf8();
+                        true
+                    }
+                })
+                .collect()
         } else {
             v
         }
