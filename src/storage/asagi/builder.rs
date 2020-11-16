@@ -15,6 +15,13 @@ use rustc_hash::FxHashMap;
 
 use super::{Asagi, AsagiInner, AsagiStorage, AsagiTask, BoardOpts, Error};
 
+#[derive(Debug, Default)]
+struct AsagiBuilderStorage {
+    filesystem_config: Option<crate::config::AsagiFilesystemStorage>,
+    s3_config: Option<crate::config::AsagiS3Storage>,
+    b2_config: Option<crate::config::AsagiB2Storage>,
+}
+
 pub struct AsagiBuilder {
     boards: FxHashMap<&'static str, BoardOpts>,
     board_configs: FxHashMap<
@@ -45,9 +52,8 @@ pub struct AsagiBuilder {
     truncate_fields: bool,
     sql_set_utc: bool,
     mysql_engine: String,
-    filesystem_config: Option<crate::config::AsagiFilesystemStorage>,
-    s3_config: Option<crate::config::AsagiS3Storage>,
-    b2_config: Option<crate::config::AsagiB2Storage>,
+    storage: AsagiBuilderStorage,
+    storage_thumbs: Option<AsagiBuilderStorage>,
 }
 
 impl Default for AsagiBuilder {
@@ -76,9 +82,8 @@ impl Default for AsagiBuilder {
             truncate_fields: true,
             sql_set_utc: true,
             mysql_engine: String::from("InnoDB"),
-            filesystem_config: None,
-            s3_config: None,
-            b2_config: None,
+            storage: Default::default(),
+            storage_thumbs: None,
         }
     }
 }
@@ -365,11 +370,25 @@ impl AsagiBuilder {
 
         let storage = Self::new_storage(
             http_client.clone(),
-            self.filesystem_config.as_ref(),
-            self.s3_config.as_ref(),
-            self.b2_config.as_ref(),
+            self.storage.filesystem_config.as_ref(),
+            self.storage.s3_config.as_ref(),
+            self.storage.b2_config.as_ref(),
         )
         .await?;
+
+        // if let Some(config) =
+        let storage_thumbs = match self.storage_thumbs {
+            Some(storage) => Some(
+                Self::new_storage(
+                    http_client.clone(),
+                    storage.filesystem_config.as_ref(),
+                    storage.s3_config.as_ref(),
+                    storage.b2_config.as_ref(),
+                )
+                .await?,
+            ),
+            None => None,
+        };
 
         for (board, config) in self.board_configs.iter() {
             if let Some(board_opt) = self.boards.get_mut(board) {
@@ -440,7 +459,7 @@ impl AsagiBuilder {
             metrics: Arc::new(super::AsagiMetrics::default()),
             process_tx,
             storage,
-            storage_thumbs: None,
+            storage_thumbs,
         };
 
         let asagi = Arc::new(asagi);
@@ -544,20 +563,28 @@ impl From<&crate::config::Asagi> for AsagiBuilder {
                 None => None,
             },
         };
-        builder.filesystem_config = filesystem_config;
-        builder.s3_config = config
+        builder.storage.filesystem_config = filesystem_config;
+        builder.storage.s3_config = config
             .media_storage
             .as_ref()
             .map(|x| x.s3.as_ref())
             .flatten()
             .cloned();
-
-        builder.b2_config = config
+        builder.storage.b2_config = config
             .media_storage
             .as_ref()
             .map(|x| x.b2.as_ref())
             .flatten()
             .cloned();
+
+        if let Some(thumb_storage) = config.thumb_storage.as_ref() {
+            let s = AsagiBuilderStorage {
+                filesystem_config: thumb_storage.filesystem.clone(),
+                s3_config: thumb_storage.s3.clone(),
+                b2_config: thumb_storage.b2.clone()
+            };
+            builder.storage_thumbs = Some(s);
+        }
 
         builder
     }
