@@ -131,7 +131,17 @@ async fn run_async(config: config::Config) -> i32 {
                     })
                     .fold(
                         storage::asagi::AsagiBuilder::from(asagi_conf),
-                        |acc, (name, thumbs, media)| acc.with_board(name, thumbs, media),
+                        |acc, (name, thumbs, media)| {
+                            acc.with_board(
+                                &name,
+                                thumbs,
+                                media,
+                                asagi_conf
+                                    .boards
+                                    .get(&name)
+                                    .and_then(|x| x.media_storage.clone()),
+                            )
+                        },
                     )
                     .with_http_client(http_client.clone())
                     .build()

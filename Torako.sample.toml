@@ -276,3 +276,29 @@ database_url = "postgres://localhost/"
 ## See the option description under backend.asagi
 ## Default 0
 #retries_on_save_error = 0
+
+## You can set custom storage backends for specific
+## boards by using this format. This mirrors the options available in
+## `backend.asagi.media_storage`
+#[backend.asagi.boards.gif.media_storage.s3]
+## S3 Access Key ID.
+#access_key_id = "0026149a"
+
+## S3 Secret Access Key
+#secret_access_key = "secret"
+
+## S3 Region
+#region = "us-east-2"
+
+## S3 Endpoint. This can be used to support S3-compatible endpoints.
+#endpoint = "foobar"
+
+## S3 Bucket.
+#bucket = "foo"
+
+## S3 Object ACL. Leaving this blank will not set an ACL.
+#acl = "public-read"
+
+## Set this to false if Torako should skip checking if the image already
+## exists, and always redownload. (Default: true)
+#check_exists = false

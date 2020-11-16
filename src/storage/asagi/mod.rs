@@ -196,6 +196,7 @@ struct BoardOpts {
     with_unix_timestamp: bool,
     with_sha256: bool,
     interval_lock: interval_lock::IntervalLock,
+    storage: Option<AsagiStorage>,
 }
 
 #[derive(Debug, Serialize)]
@@ -281,6 +282,12 @@ impl super::MetricsProvider for AsagiMetricsProvider {
     }
 }
 
+struct AsagiStorage {
+    fs: Option<storage::FileSystem>,
+    s3: Option<storage::S3>,
+    b2: Option<storage::Backblaze>,
+}
+
 struct AsagiInner {
     client: reqwest::Client,
     boards: FxHashMap<&'static str, BoardOpts>,
@@ -314,9 +321,7 @@ struct AsagiInner {
     metrics: Arc<AsagiMetrics>,
     process_tx: tokio::sync::mpsc::UnboundedSender<AsagiTask>,
 
-    fs_storage: Option<storage::FileSystem>,
-    s3_storage: Option<storage::S3>,
-    b2_storage: Option<storage::Backblaze>,
+    storage: AsagiStorage,
 }
 
 #[derive(Debug)]
@@ -1184,17 +1189,22 @@ impl AsagiInner {
             }
         };
 
-        let fs_download = match self.fs_storage.as_ref() {
+        let storage = match self.boards.get(meta.board).and_then(|x| x.storage.as_ref()) {
+            Some(s) => s,
+            None => &self.storage,
+        };
+
+        let fs_download = match storage.fs.as_ref() {
             Some(fs) => !fs.exists(&filename).await?,
             None => false,
         };
 
-        let s3_download = match self.s3_storage.as_ref() {
+        let s3_download = match storage.s3.as_ref() {
             Some(fs) => !fs.exists(&filename).await?,
             None => false,
         };
 
-        let b2_download = match self.b2_storage.as_ref() {
+        let b2_download = match storage.b2.as_ref() {
             Some(fs) => !fs.exists(&filename).await?,
             None => false,
         };
@@ -1274,7 +1284,7 @@ impl AsagiInner {
                         Either::Left(
                             tokio::io::reader_stream(temp_file).map_err(|err| Error::from(err)),
                         ),
-                        Some((tempname, file_hash))
+                        Some((tempname, file_hash)),
                     )
                 } else {
                     (
@@ -1293,11 +1303,11 @@ impl AsagiInner {
                                 _ => Error::from(err),
                             },
                         )),
-                        None
+                        None,
                     )
                 };
 
-            let file_sink = match &self.fs_storage {
+            let file_sink = match &storage.fs {
                 Some(fs) if fs_download => match fs.open(&filename, sz).await {
                     Ok(f) => Some(f),
                     Err(err) => Err(err)?,
@@ -1305,7 +1315,7 @@ impl AsagiInner {
                 _ => None,
             };
 
-            let s3_sink = match &self.s3_storage {
+            let s3_sink = match &storage.s3 {
                 Some(fs) if s3_download => match fs.open(&filename, sz).await {
                     Ok(f) => Some(f),
                     Err(err) => {
@@ -1316,7 +1326,7 @@ impl AsagiInner {
                 _ => None,
             };
 
-            let b2_sink = match &self.b2_storage {
+            let b2_sink = match &storage.b2 {
                 Some(fs) if b2_download => match fs.open(&filename, sz).await {
                     Ok(f) => Some(f),
                     Err(err) => {
@@ -1369,7 +1379,7 @@ impl AsagiInner {
                     MediaKind::Thumb => match meta.is_op {
                         true => "preview_op_sha256",
                         false => "preview_reply_sha256",
-                    }
+                    },
                 };
                 let media_id = mysql_async::Value::from(media.media_id);
 
@@ -1378,8 +1388,8 @@ impl AsagiInner {
                     meta.board, column
                 );
                 let mut conn = self.get_db_conn().await?;
-                conn.exec_drop(stmt.as_str(), vec![mysql_async::Value::from(sha), media_id]).await?
-
+                conn.exec_drop(stmt.as_str(), vec![mysql_async::Value::from(sha), media_id])
+                    .await?
             }
 
             info!(

@@ -13,10 +13,11 @@ use log::{info, warn};
 use mysql_async::prelude::*;
 use rustc_hash::FxHashMap;
 
-use super::{Asagi, AsagiInner, AsagiTask, BoardOpts, Error};
+use super::{Asagi, AsagiInner, AsagiStorage, AsagiTask, BoardOpts, Error};
 
 pub struct AsagiBuilder {
     boards: FxHashMap<&'static str, BoardOpts>,
+    board_configs: FxHashMap<&'static str, crate::config::AsagiStorage>,
     mysql_url: Option<String>,
     mysql_charset: String,
     media_path: Option<PathBuf>,
@@ -47,6 +48,7 @@ impl Default for AsagiBuilder {
     fn default() -> Self {
         AsagiBuilder {
             boards: FxHashMap::default(),
+            board_configs: FxHashMap::default(),
             mysql_url: None,
             mysql_charset: String::from("utf8mb4"),
             media_path: None,
@@ -81,6 +83,7 @@ impl AsagiBuilder {
         board: T,
         save_thumbnails: bool,
         save_media: bool,
+        media_config: Option<crate::config::AsagiStorage>,
     ) -> Self {
         let static_board: &'static str = Box::leak(board.as_ref().to_string().into_boxed_str());
         self.boards.insert(
@@ -91,6 +94,9 @@ impl AsagiBuilder {
                 ..Default::default()
             },
         );
+        if let Some(config) = media_config {
+            self.board_configs.insert(static_board, config.clone());
+        }
 
         self
     }
@@ -200,6 +206,64 @@ impl AsagiBuilder {
         self
     }
 
+    async fn new_storage(
+        http_client: reqwest::Client,
+        filesystem_config: Option<&crate::config::AsagiFilesystemStorage>,
+        s3_config: Option<&crate::config::AsagiS3Storage>,
+        b2_config: Option<&crate::config::AsagiB2Storage>,
+    ) -> Result<AsagiStorage, Error> {
+        let fs_storage = match &filesystem_config {
+            Some(conf) if !conf.disabled => Some(
+                super::storage::FileSystem::new(
+                    &conf.media_path,
+                    conf.tmp_dir
+                        .clone()
+                        .unwrap_or(std::env::temp_dir().join("torako")),
+                    conf.web_unix_group.as_ref().map(|x| OsStr::new(x)),
+                )
+                .await?,
+            ),
+            _ => None,
+        };
+
+        let s3_storage = match s3_config.as_ref() {
+            Some(conf) if !conf.disabled => Some(
+                super::storage::S3::new(
+                    &conf.access_key_id,
+                    &conf.secret_access_key,
+                    &conf.bucket,
+                    &conf.region,
+                    conf.endpoint.as_ref().map(|x| x.to_string()),
+                    conf.acl.clone(),
+                    conf.check_exists.unwrap_or(true),
+                )
+                .await?,
+            ),
+            _ => None,
+        };
+
+        let b2_storage = match b2_config.as_ref() {
+            Some(conf) if !conf.disabled => Some(
+                super::storage::Backblaze::new(
+                    http_client,
+                    &conf.bucket_id,
+                    &conf.application_key_id,
+                    &conf.application_key,
+                    conf.check_exists.unwrap_or(true),
+                    conf.bloom.clone(),
+                )
+                .await?,
+            ),
+            _ => None,
+        };
+
+        Ok(AsagiStorage {
+            fs: fs_storage,
+            s3: s3_storage,
+            b2: b2_storage,
+        })
+    }
+
     pub async fn build(mut self) -> Result<Asagi, Error> {
         if self.boards.len() == 0 {
             return Err(Error::NoBoards);
@@ -291,50 +355,26 @@ impl AsagiBuilder {
         let http_client = self.http_client.unwrap_or(reqwest::Client::new());
         let (process_tx, process_rx) = tokio::sync::mpsc::unbounded_channel();
 
-        let fs_storage = match &self.filesystem_config {
-            Some(conf) if !conf.disabled => Some(
-                super::storage::FileSystem::new(
-                    &conf.media_path,
-                    conf.tmp_dir
-                        .clone()
-                        .unwrap_or(std::env::temp_dir().join("torako")),
-                    conf.web_unix_group.as_ref().map(|x| OsStr::new(x)),
-                )
-                .await?,
-            ),
-            _ => None,
-        };
+        let storage = Self::new_storage(
+            http_client.clone(),
+            self.filesystem_config.as_ref(),
+            self.s3_config.as_ref(),
+            self.b2_config.as_ref(),
+        )
+        .await?;
 
-        let s3_storage = match self.s3_config.as_ref() {
-            Some(conf) if !conf.disabled => Some(
-                super::storage::S3::new(
-                    &conf.access_key_id,
-                    &conf.secret_access_key,
-                    &conf.bucket,
-                    &conf.region,
-                    conf.endpoint.as_ref().map(|x| x.to_string()),
-                    conf.acl.clone(),
-                    conf.check_exists.unwrap_or(true),
-                )
-                .await?,
-            ),
-            _ => None,
-        };
-
-        let b2_storage = match self.b2_config.as_ref() {
-            Some(conf) if !conf.disabled => Some(
-                super::storage::Backblaze::new(
+        for (board, config) in self.board_configs.iter() {
+            if let Some(board_opt) = self.boards.get_mut(board) {
+                let storage = Self::new_storage(
                     http_client.clone(),
-                    &conf.bucket_id,
-                    &conf.application_key_id,
-                    &conf.application_key,
-                    conf.check_exists.unwrap_or(true),
-                    conf.bloom.clone(),
+                    config.filesystem.as_ref(),
+                    config.s3.as_ref(),
+                    config.b2.as_ref(),
                 )
-                .await?,
-            ),
-            _ => None,
-        };
+                .await?;
+                board_opt.storage = Some(storage);
+            }
+        }
 
         let asagi = AsagiInner {
             client: http_client,
@@ -374,9 +414,7 @@ impl AsagiBuilder {
             failed: AtomicBool::new(false),
             metrics: Arc::new(super::AsagiMetrics::default()),
             process_tx,
-            fs_storage,
-            s3_storage,
-            b2_storage,
+            storage,
         };
 
         let asagi = Arc::new(asagi);

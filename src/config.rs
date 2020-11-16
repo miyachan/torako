@@ -76,6 +76,8 @@ pub struct Asagi {
     pub old_dir_structure: Option<bool>,
     #[serde(default)]
     pub sha_dir_structure: Option<bool>,
+    #[serde(default)]
+    pub boards: FxHashMap<String, AsagiBoard>,
 
     // Options kept for backwards compatibility
     #[serde(default)]
@@ -84,6 +86,11 @@ pub struct Asagi {
     pub tmp_dir: Option<PathBuf>,
     #[serde(default)]
     pub web_unix_group: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct AsagiBoard {
+    pub media_storage: Option<AsagiStorage>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
