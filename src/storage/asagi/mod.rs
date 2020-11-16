@@ -504,8 +504,8 @@ impl AsagiInner {
                                 match media_map.entry(post.md5.clone().unwrap()) {
                                     Entry::Occupied(_) => {
                                         dups += 1;
-                                        return None
-                                    },
+                                        return None;
+                                    }
                                     Entry::Vacant(v) => {
                                         v.insert(i - dups);
                                     }
@@ -517,7 +517,7 @@ impl AsagiInner {
                                 };
                                 let (preview_op, preview_reply) = match post.has_thumb() {
                                     true => (preview_op, preview_reply),
-                                    false => (None, None)
+                                    false => (None, None),
                                 };
 
                                 let values: Box<[mysql_async::Value]> = Box::new([
@@ -533,7 +533,9 @@ impl AsagiInner {
                             .collect::<Vec<_>>();
 
                         let num_images = media_params.len() / 5;
-                        let (id_lowmark, affected) = if self.without_triggers && media_params.len() > 0 {
+                        let (id_lowmark, affected) = if self.without_triggers
+                            && media_params.len() > 0
+                        {
                             let rows = num_images;
 
                             /*
@@ -574,7 +576,9 @@ impl AsagiInner {
                             let affected = media_results.affected_rows() as usize;
                             match affected > num_images {
                                 true => (0, affected),
-                                false => (media_results.last_insert_id().unwrap() as usize, affected)
+                                false => {
+                                    (media_results.last_insert_id().unwrap() as usize, affected)
+                                }
                             }
                         } else {
                             (0, 0)
@@ -609,15 +613,10 @@ impl AsagiInner {
                                 &board, placeholders
                             );
 
-                            tx
-                                .exec_map(
-                                    stmt.as_str(),
-                                    values,
-                                    |(media_hash, media_id)| {
-                                        media_map.insert(media_hash, media_id)
-                                    },
-                                )
-                                .await?;
+                            tx.exec_map(stmt.as_str(), values, |(media_hash, media_id)| {
+                                media_map.insert(media_hash, media_id)
+                            })
+                            .await?;
                         }
 
                         let mut threads: FxHashMap<u64, Thread> = FxHashMap::default();
@@ -663,8 +662,12 @@ impl AsagiInner {
                                                 Entry::Vacant(v) => {
                                                     let username = post.name.clone();
                                                     let trip = post.trip.clone();
-                                                    let timestamp = post.datetime().map(|d| d.timestamp() as u64).unwrap_or(post.time);
-                                                    let mut u = stats::User::new(username, trip, timestamp);
+                                                    let timestamp = post
+                                                        .datetime()
+                                                        .map(|d| d.timestamp() as u64)
+                                                        .unwrap_or(post.time);
+                                                    let mut u =
+                                                        stats::User::new(username, trip, timestamp);
                                                     u.update(&post);
                                                     v.insert(u);
                                                 }
@@ -712,37 +715,37 @@ impl AsagiInner {
                                     None => chrono::NaiveDateTime::from_timestamp(1, 0),
                                 };
                                 let values: Box<[mysql_async::Value]> = Box::new([
-                                    post.no.into(),               // num
-                                    0usize.into(),                // subnum,
-                                    post.thread_no().into(),      // thread_num,
-                                    post.is_op().into(),          // op,
-                                    post.nyc_timestamp().into(),  // timestamp,
-                                    deleted_at,                   // timestamp_expired
-                                    post.preview_orig().into(),   // preview_orig,
-                                    post.tn_w.into(),             // preview_w
-                                    post.tn_h.into(),             // preview_h,
-                                    media_id.into(),              // media_id
+                                    post.no.into(),                       // num
+                                    0usize.into(),                        // subnum,
+                                    post.thread_no().into(),              // thread_num,
+                                    post.is_op().into(),                  // op,
+                                    post.nyc_timestamp().into(),          // timestamp,
+                                    deleted_at,                           // timestamp_expired
+                                    post.preview_orig().into(),           // preview_orig,
+                                    post.tn_w.into(),                     // preview_w
+                                    post.tn_h.into(),                     // preview_h,
+                                    media_id.into(),                      // media_id
                                     post.media_filename_decoded().into(), // media_filename,
-                                    post.w.into(),                // media_w,
-                                    post.h.into(),                // media_h,
-                                    post.fsize.into(),            // media_size,
-                                    post.md5.as_ref().into(),     // media_hash,
-                                    media_orig,                   // media_orig,
-                                    post.spoiler.into(),          // spoiler,
-                                    post.deleted.into(),          // deleted,
-                                    capcode,                      // capcode,
-                                    poster_email,                 // email,
-                                    poster_name,                  // name
-                                    post.trip.as_ref().into(),    // trip
-                                    post_title,                   // title
-                                    comment,                      // comment
-                                    mysql_async::Value::NULL,     // delpass,
-                                    post.sticky.into(),           // sticky
-                                    post.closed.into(),           // locked
-                                    poster_hash,                  // poster_hash,
-                                    poster_country,               // poster_country,
-                                    exif,                         // exif
-                                    unix_timestamp.into(),        // unix_timestamp
+                                    post.w.into(),                        // media_w,
+                                    post.h.into(),                        // media_h,
+                                    post.fsize.into(),                    // media_size,
+                                    post.md5.as_ref().into(),             // media_hash,
+                                    media_orig,                           // media_orig,
+                                    post.spoiler.into(),                  // spoiler,
+                                    post.deleted.into(),                  // deleted,
+                                    capcode,                              // capcode,
+                                    poster_email,                         // email,
+                                    poster_name,                          // name
+                                    post.trip.as_ref().into(),            // trip
+                                    post_title,                           // title
+                                    comment,                              // comment
+                                    mysql_async::Value::NULL,             // delpass,
+                                    post.sticky.into(),                   // sticky
+                                    post.closed.into(),                   // locked
+                                    poster_hash,                          // poster_hash,
+                                    poster_country,                       // poster_country,
+                                    exif,                                 // exif
+                                    unix_timestamp.into(),                // unix_timestamp
                                 ]);
                                 match with_unix_timestamp {
                                     true => values.into_vec(),
@@ -826,43 +829,43 @@ impl AsagiInner {
                                         )
                                     )
                                     .collect::<String>();
-                                            let thread_values = threads
-                                                .into_iter()
-                                                .map(|(_, thread)| {
-                                                    let values: Box<[mysql_async::Value]> = Box::new([
-                                                        thread.thread_num.into(),         // thread_num
-                                                        thread.time_op.into(),            // time_op
-                                                        thread.time_last.into(),          // time_last,
-                                                        thread.time_bump.into(),          // time_bump,
-                                                        thread.time_ghost.into(),         // time_ghost,
-                                                        thread.time_ghost_bump.into(),    // time_ghost_bump,
-                                                        thread.time_last_modified.into(), // time_last_modified
-                                                        thread.n_replies.into(),          // nreplies,
-                                                        thread.n_images.into(),           // nimages
-                                                        thread.sticky.into(),             // sticky,
-                                                        thread.locked.into(),             // locked
-                                                    ]);
-                                                    values.into_vec()
-                                                })
-                                                .flatten()
-                                                .collect::<Vec<_>>();
+                                let thread_values = threads
+                                    .into_iter()
+                                    .map(|(_, thread)| {
+                                        let values: Box<[mysql_async::Value]> = Box::new([
+                                            thread.thread_num.into(),         // thread_num
+                                            thread.time_op.into(),            // time_op
+                                            thread.time_last.into(),          // time_last,
+                                            thread.time_bump.into(),          // time_bump,
+                                            thread.time_ghost.into(),         // time_ghost,
+                                            thread.time_ghost_bump.into(),    // time_ghost_bump,
+                                            thread.time_last_modified.into(), // time_last_modified
+                                            thread.n_replies.into(),          // nreplies,
+                                            thread.n_images.into(),           // nimages
+                                            thread.sticky.into(),             // sticky,
+                                            thread.locked.into(),             // locked
+                                        ]);
+                                        values.into_vec()
+                                    })
+                                    .flatten()
+                                    .collect::<Vec<_>>();
 
-                                            tx.exec_drop(thread_query.as_str(), thread_values).await?;
-                                        }
+                                tx.exec_drop(thread_query.as_str(), thread_values).await?;
+                            }
 
-                                if self.with_stats {
-                                    // Update daily stats
-                                    if daily.len() > 0 {
-                                        let rows = daily.len();
-                                        let daily_table = format!(
+                            if self.with_stats {
+                                // Update daily stats
+                                if daily.len() > 0 {
+                                    let rows = daily.len();
+                                    let daily_table = format!(
                                             "INSERT INTO `{}_daily` (day, posts, images, sage, anons, trips, names)
                                         VALUES (?, ?, ?, ?, ?, ?, ?)",
                                             &board
                                         );
-                                        let daily_query = std::iter::once(daily_table.as_str())
-                                            .chain((0..(rows - 1)).map(|_| ", (?, ?, ?, ?, ?, ?, ?)"))
-                                            .chain(std::iter::once(
-                                                " ON DUPLICATE KEY UPDATE
+                                    let daily_query = std::iter::once(daily_table.as_str())
+                                        .chain((0..(rows - 1)).map(|_| ", (?, ?, ?, ?, ?, ?, ?)"))
+                                        .chain(std::iter::once(
+                                            " ON DUPLICATE KEY UPDATE
                                                     posts = VALUES(posts) + posts,
                                                     images = VALUES(images) + images,
                                                     sage = VALUES(sage) + sage,
@@ -870,8 +873,8 @@ impl AsagiInner {
                                                     trips = VALUES(trips) + trips,
                                                     names = VALUES(names) + names;
                                                 ",
-                                            ))
-                                            .collect::<String>();
+                                        ))
+                                        .collect::<String>();
 
                                     let daily_values = daily
                                         .into_iter()
@@ -911,7 +914,7 @@ impl AsagiInner {
                                     let users_table = format!(
                                         "INSERT INTO `{}_users` (name, trip, firstseen, postcount)
                                         VALUES (?, ?, ?, ?)",
-                                                        &board
+                                        &board
                                     );
                                     let users_query = std::iter::once(users_table.as_str())
                                         .chain((0..(rows - 1)).map(|_| ", (?, ?, ?, ?)"))
