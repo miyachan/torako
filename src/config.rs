@@ -74,6 +74,8 @@ pub struct Asagi {
     pub database: AsagiDatabase,
     #[serde(default)]
     pub old_dir_structure: Option<bool>,
+    #[serde(default)]
+    pub sha_dir_structure: Option<bool>,
 
     // Options kept for backwards compatibility
     #[serde(default)]

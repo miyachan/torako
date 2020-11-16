@@ -23,6 +23,7 @@ pub struct AsagiBuilder {
     without_triggers: bool,
     with_stats: bool,
     old_dir_structure: bool,
+    sha_dir_structure: bool,
     tmp_dir: Option<PathBuf>,
     http_client: Option<reqwest::Client>,
     media_url: Option<reqwest::Url>,
@@ -52,6 +53,7 @@ impl Default for AsagiBuilder {
             without_triggers: false,
             with_stats: false,
             old_dir_structure: false,
+            sha_dir_structure: false,
             tmp_dir: None,
             http_client: None,
             media_url: None,
@@ -145,6 +147,11 @@ impl AsagiBuilder {
 
     pub fn with_old_dir_structure(mut self, enable: bool) -> Self {
         self.old_dir_structure = enable;
+        self
+    }
+
+    pub fn with_sha_dir_structure(mut self, enable: bool) -> Self {
+        self.sha_dir_structure = enable;
         self
     }
 
@@ -267,6 +274,17 @@ impl AsagiBuilder {
             if col.is_some() {
                 opts.with_unix_timestamp = true
             }
+
+            let col: Option<String> = conn.exec_first("SELECT `COLUMN_NAME` FROM `INFORMATION_SCHEMA`.`COLUMNS` WHERE `TABLE_SCHEMA`= :table_schema AND `TABLE_NAME`= :table_name AND `COLUMN_NAME` = :column_name",
+                params! {
+                    "table_schema" => database_name.clone(),
+                    "table_name" => format!("{}_images", board),
+                    "column_name" => "media_sha256",
+                }
+            ).await?;
+            if col.is_some() {
+                opts.with_sha256 = true
+            }
         }
 
         drop(conn);
@@ -337,6 +355,8 @@ impl AsagiBuilder {
                 Err(_) => panic!("SystemTime before UNIX EPOCH!"),
             },
             old_dir_structure: self.old_dir_structure,
+            sha_dir_structure: self.sha_dir_structure,
+            tmp_dir: std::env::temp_dir().join("torako"),
             fail_on_save_error: self.fail_on_save_error,
             retries_on_save_error: self.retries_on_save_error,
             max_concurrent_downloads: self.concurrent_downloads,
@@ -414,6 +434,9 @@ impl From<&crate::config::Asagi> for AsagiBuilder {
         }
         if let Some(old_dir_structure) = config.old_dir_structure {
             builder = builder.with_old_dir_structure(old_dir_structure);
+        }
+        if let Some(sha_dir_structure) = config.sha_dir_structure {
+            builder = builder.with_sha_dir_structure(sha_dir_structure);
         }
         if let Some(max_concurrent_downloads) = config.concurrent_downloads {
             builder = builder.max_concurrent_downloads(max_concurrent_downloads.into());

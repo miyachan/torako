@@ -13,12 +13,15 @@ use backoff::backoff::Backoff;
 use futures::future::Either;
 use futures::prelude::*;
 use futures::task::AtomicWaker;
+use hex;
 use log::{debug, error, info, warn};
 use mysql_async::{prelude::*, TxOpts};
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
+use rand::distributions::Alphanumeric;
 use rand::Rng;
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 use tokio::io::AsyncWriteExt;
 
@@ -191,6 +194,7 @@ struct BoardOpts {
     thumbs: bool,
     media: bool,
     with_unix_timestamp: bool,
+    with_sha256: bool,
     interval_lock: interval_lock::IntervalLock,
 }
 
@@ -284,7 +288,9 @@ struct AsagiInner {
     with_stats: bool,
     direct_db_pool: mysql_async::Pool,
     asagi_start_time: i64,
+    tmp_dir: PathBuf,
     old_dir_structure: bool,
+    sha_dir_structure: bool,
     media_url: reqwest::Url,
     thumb_url: reqwest::Url,
     download_thumbs: bool,
@@ -1052,6 +1058,23 @@ impl AsagiInner {
         return Ok(subdir.join(filename));
     }
 
+    fn download_path_sha<P: AsRef<Path>, Q: AsRef<str>>(&self, filename: P, sha: Q) -> PathBuf {
+        let sha = sha.as_ref();
+        let filename = filename.as_ref();
+        let ext = filename
+            .extension()
+            .map(|x| x.to_string_lossy().to_string())
+            .or(Some(String::from("jpg")));
+        let subdir = PathBuf::from(format!(
+            "{}/{}",
+            &sha[sha.len() - 1..],
+            &sha[sha.len() - 3..sha.len() - 1]
+        ));
+        let filename = format!("{}.{}", sha, ext.unwrap());
+
+        return subdir.join(filename);
+    }
+
     // TODO: lookup_media does not support looking up data
     // when each media item may belong to a different org.
     //
@@ -1073,7 +1096,7 @@ impl AsagiInner {
             .chain((0..values.len() - 1).map(|_| ", ?"))
             .collect::<String>();
         let stmt = format!(
-            "SELECT media_hash, media, preview_op, preview_reply, banned FROM `{}_images` WHERE media_hash IN ({})",
+            "SELECT media_id, media_hash, media, preview_op, preview_reply, banned FROM `{}_images` WHERE media_hash IN ({})",
             board, placeholders
         );
         let m = hashes
@@ -1085,9 +1108,9 @@ impl AsagiInner {
             .exec_map(
                 stmt.as_str(),
                 values,
-                |(media_hash, media, preview_op, preview_reply, banned)| {
+                |(media_id, media_hash, media, preview_op, preview_reply, banned)| {
                     let media = thread::Media {
-                        media_id: 0,
+                        media_id,
                         media_hash,
                         media,
                         preview_op,
@@ -1108,6 +1131,9 @@ impl AsagiInner {
         media: &thread::Media,
         meta: &MediaDescriptor,
     ) -> Result<(), Error> {
+        let sha_format =
+            self.sha_dir_structure && self.boards.get(meta.board).map(|x| x.with_sha256).unwrap();
+
         let (media_name, filename, url) = match kind {
             MediaKind::Thumb => {
                 let filename = match self.old_dir_structure {
@@ -1201,6 +1227,76 @@ impl AsagiInner {
                 }
             };
 
+            let (filename, dl_stream, sha) =
+                if sha_format {
+                    let tempname = self.tmp_dir.join(
+                        rand::thread_rng()
+                            .sample_iter(&Alphanumeric)
+                            .take(16)
+                            .collect::<String>(),
+                    );
+
+                    let temp_file = tokio::fs::OpenOptions::new()
+                        .read(true)
+                        .write(true)
+                        .create(true)
+                        .truncate(true)
+                        .open(&tempname)
+                        .await?;
+
+                    let (hasher, mut temp_file) = dl_req
+                        .bytes_stream()
+                        .map_err(move |err| match err.status() {
+                            Some(reqwest::StatusCode::SERVICE_UNAVAILABLE) => {
+                                Error::CloudFlareBlocked(err)
+                            }
+                            Some(reqwest::StatusCode::TOO_MANY_REQUESTS) => {
+                                Error::CloudFlareBlocked(err)
+                            }
+                            Some(reqwest::StatusCode::FORBIDDEN) => Error::CloudFlareBlocked(err),
+                            _ => Error::from(err),
+                        })
+                        .try_fold(
+                            (Sha256::new(), temp_file),
+                            |(hasher, mut temp_file), buf| async move {
+                                temp_file.write(&buf).await?;
+                                Ok((hasher.chain(&buf), temp_file))
+                            },
+                        )
+                        .await?;
+
+                    let file_hash = hex::encode(hasher.finalize());
+                    temp_file.seek(tokio::io::SeekFrom::Start(0)).await?;
+                    let filename = self.download_path_sha(filename, &file_hash);
+
+                    (
+                        filename,
+                        Either::Left(
+                            tokio::io::reader_stream(temp_file).map_err(|err| Error::from(err)),
+                        ),
+                        Some((tempname, file_hash))
+                    )
+                } else {
+                    (
+                        filename,
+                        Either::Right(dl_req.bytes_stream().map_err(
+                            move |err| match err.status() {
+                                Some(reqwest::StatusCode::SERVICE_UNAVAILABLE) => {
+                                    Error::CloudFlareBlocked(err)
+                                }
+                                Some(reqwest::StatusCode::TOO_MANY_REQUESTS) => {
+                                    Error::CloudFlareBlocked(err)
+                                }
+                                Some(reqwest::StatusCode::FORBIDDEN) => {
+                                    Error::CloudFlareBlocked(err)
+                                }
+                                _ => Error::from(err),
+                            },
+                        )),
+                        None
+                    )
+                };
+
             let file_sink = match &self.fs_storage {
                 Some(fs) if fs_download => match fs.open(&filename, sz).await {
                     Ok(f) => Some(f),
@@ -1232,14 +1328,7 @@ impl AsagiInner {
                 _ => None,
             };
 
-            let (sinks, downloaded) = dl_req
-                .bytes_stream()
-                .map_err(move |err| match err.status() {
-                    Some(reqwest::StatusCode::SERVICE_UNAVAILABLE) => Error::CloudFlareBlocked(err),
-                    Some(reqwest::StatusCode::TOO_MANY_REQUESTS) => Error::CloudFlareBlocked(err),
-                    Some(reqwest::StatusCode::FORBIDDEN) => Error::CloudFlareBlocked(err),
-                    _ => Error::from(err),
-                })
+            let (sinks, downloaded) = dl_stream
                 .try_fold(
                     ((file_sink, s3_sink, b2_sink), 0),
                     |(mut f, bytes), buf| async move {
@@ -1271,6 +1360,26 @@ impl AsagiInner {
             }
             if sinks.2.is_some() {
                 sinks.2.unwrap().shutdown().await?;
+            }
+
+            if let Some((tempname, sha)) = sha {
+                tokio::fs::remove_file(tempname).await?;
+                let column = match kind {
+                    MediaKind::Image => "media_hash",
+                    MediaKind::Thumb => match meta.is_op {
+                        true => "preview_op_sha256",
+                        false => "preview_reply_sha256",
+                    }
+                };
+                let media_id = mysql_async::Value::from(media.media_id);
+
+                let stmt = format!(
+                    "UPDATE `{}_images` SET {} = ? WHERE media_id = ?",
+                    meta.board, column
+                );
+                let mut conn = self.get_db_conn().await?;
+                conn.exec_drop(stmt.as_str(), vec![mysql_async::Value::from(sha), media_id]).await?
+
             }
 
             info!(
