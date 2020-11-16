@@ -302,6 +302,10 @@ database_url = "postgres://localhost/"
 ## engine will completely override global options (ex. if globally you store
 ## files on disk, but on /gif/ you opt to use s3, then /gif/ will not store
 ## files on disk).
+##
+## The storage configuration heirarchy is as follows:
+## Images: [backend.asagi.boards.{board}.media_storage] > [backend.asagi.media_storage]
+## Thumbs: [backend.asagi.boards.{board}.thumb_storage] > [backend.asagi.thumb_storage] > [backend.asagi.boards.{board}.media_storage] > [backend.asagi.media_storage]
 #[backend.asagi.boards.gif.media_storage.s3]
 ## S3 Access Key ID.
 #access_key_id = "0026149a"
@@ -325,8 +329,8 @@ database_url = "postgres://localhost/"
 ## exists, and always redownload. (Default: true)
 #check_exists = false
 
-# Likewise board specfic thumbnail storage can be specified.
-##[backend.asagi.boards.gif.thumb_storage.s3]
+## Likewise board specfic thumbnail storage can be specified.
+#[backend.asagi.boards.gif.thumb_storage.s3]
 ## S3 Access Key ID.
 #access_key_id = "0026149a"
 
