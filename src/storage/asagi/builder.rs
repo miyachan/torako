@@ -581,7 +581,7 @@ impl From<&crate::config::Asagi> for AsagiBuilder {
             let s = AsagiBuilderStorage {
                 filesystem_config: thumb_storage.filesystem.clone(),
                 s3_config: thumb_storage.s3.clone(),
-                b2_config: thumb_storage.b2.clone()
+                b2_config: thumb_storage.b2.clone(),
             };
             builder.storage_thumbs = Some(s);
         }

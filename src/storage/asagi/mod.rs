@@ -1195,10 +1195,12 @@ impl AsagiInner {
         };
 
         let board_storage = match kind {
-            MediaKind::Thumb => self
-                .boards
-                .get(meta.board)
-                .and_then(|x| x.storage_thumbs.as_ref().or(x.storage.as_ref())),
+            MediaKind::Thumb => self.boards.get(meta.board).and_then(|x| {
+                x.storage_thumbs
+                    .as_ref()
+                    .or(self.storage_thumbs.as_ref())
+                    .or(x.storage.as_ref())
+            }),
             MediaKind::Image => self.boards.get(meta.board).and_then(|x| x.storage.as_ref()),
         };
         let storage = match board_storage {
@@ -1293,9 +1295,9 @@ impl AsagiInner {
                         )
                         .await?;
 
-                    let file_hash = hex::encode(hasher.finalize());
+                    let file_hash = hasher.finalize();
                     temp_file.seek(tokio::io::SeekFrom::Start(0)).await?;
-                    let filename = self.download_path_sha(filename, &file_hash);
+                    let filename = self.download_path_sha(filename, hex::encode(file_hash));
 
                     (
                         filename,
@@ -1406,8 +1408,11 @@ impl AsagiInner {
                     meta.board, column
                 );
                 let mut conn = self.get_db_conn().await?;
-                conn.exec_drop(stmt.as_str(), vec![mysql_async::Value::from(sha), media_id])
-                    .await?
+                conn.exec_drop(
+                    stmt.as_str(),
+                    vec![mysql_async::Value::from(sha.as_slice()), media_id],
+                )
+                .await?
             }
 
             info!(
