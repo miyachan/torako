@@ -96,6 +96,10 @@ request_timeout = "30m"
 ## Old Directory Structure. This is a legacy option in Asagi. (Default: false)
 #old_dir_structure = false
 
+## Sha256 Directory Structure. Images will be stored in accordance to the
+## sha256 hash of the image. (Default: false)
+#sha_dir_structure = false
+
 ## If we fail to save a thread or post to MySQL for whatever
 ## reason, we should consider this as a fatal error and
 ## stop Torako. The operator (or system) should restart Torako.

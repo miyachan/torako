@@ -1375,7 +1375,7 @@ impl AsagiInner {
             if let Some((tempname, sha)) = sha {
                 tokio::fs::remove_file(tempname).await?;
                 let column = match kind {
-                    MediaKind::Image => "media_hash",
+                    MediaKind::Image => "media_sha256",
                     MediaKind::Thumb => match meta.is_op {
                         true => "preview_op_sha256",
                         false => "preview_reply_sha256",

@@ -376,6 +376,11 @@ impl AsagiBuilder {
             }
         }
 
+        // create sha2 tmp_dir
+        if self.sha_dir_structure {
+            tokio::fs::create_dir_all(std::env::temp_dir().join("torako")).await?;
+        }
+
         let asagi = AsagiInner {
             client: http_client,
             media_url: self
