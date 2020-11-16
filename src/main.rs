@@ -140,6 +140,10 @@ async fn run_async(config: config::Config) -> i32 {
                                     .boards
                                     .get(&name)
                                     .and_then(|x| x.media_storage.clone()),
+                                asagi_conf
+                                    .boards
+                                    .get(&name)
+                                    .and_then(|x| x.thumb_storage.clone()),
                             )
                         },
                     )

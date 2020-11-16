@@ -71,6 +71,8 @@ pub struct Asagi {
     pub media_backpressure: Option<bool>,
     #[serde(default)]
     pub media_storage: Option<AsagiStorage>,
+    #[serde(default)]
+    pub thumb_storage: Option<AsagiStorage>,
     pub database: AsagiDatabase,
     #[serde(default)]
     pub old_dir_structure: Option<bool>,
@@ -91,6 +93,7 @@ pub struct Asagi {
 #[derive(Debug, Deserialize, Clone)]
 pub struct AsagiBoard {
     pub media_storage: Option<AsagiStorage>,
+    pub thumb_storage: Option<AsagiStorage>,
 }
 
 #[derive(Debug, Deserialize, Clone)]

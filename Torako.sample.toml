@@ -215,6 +215,21 @@ media_path = "/var/lib/torako"
 
 ##false_positive_rate = 0.05
 
+## All the options for `backend.asagi.media_storage` can also be set for
+## `backend.asagi.thumb_storage`, to store thumbnails in a different manner.
+## By default thumbnails will be stored according to `media_storage`.
+#[backend.asagi.thumb_storage.filesystem]
+## Media Path. This is where downloaded content is stored. If this is not
+## provided then media downloading will be disabled.
+#media_path = "/var/lib/torako"
+
+# TMP dir. (Default: System Temp Path + /torako)
+#tmp_dir = "/tmp/torako"
+
+## Web UNIX Group. On Unix system, if this is set, all downloads and download
+## folders will have their group ownership set to this. (Default: None)
+#web_unix_group = "www-data"
+
 [backend.asagi.database]
 ## Database URL. Usually in the format of
 ## mysql://username:password@host/db_name.
@@ -283,8 +298,35 @@ database_url = "postgres://localhost/"
 
 ## You can set custom storage backends for specific
 ## boards by using this format. This mirrors the options available in
-## `backend.asagi.media_storage`
+## `backend.asagi.media_storage`. Note that specifying a board specific storage
+## engine will completely override global options (ex. if globally you store
+## files on disk, but on /gif/ you opt to use s3, then /gif/ will not store
+## files on disk).
 #[backend.asagi.boards.gif.media_storage.s3]
+## S3 Access Key ID.
+#access_key_id = "0026149a"
+
+## S3 Secret Access Key
+#secret_access_key = "secret"
+
+## S3 Region
+#region = "us-east-2"
+
+## S3 Endpoint. This can be used to support S3-compatible endpoints.
+#endpoint = "foobar"
+
+## S3 Bucket.
+#bucket = "foo"
+
+## S3 Object ACL. Leaving this blank will not set an ACL.
+#acl = "public-read"
+
+## Set this to false if Torako should skip checking if the image already
+## exists, and always redownload. (Default: true)
+#check_exists = false
+
+# Likewise board specfic thumbnail storage can be specified.
+##[backend.asagi.boards.gif.thumb_storage.s3]
 ## S3 Access Key ID.
 #access_key_id = "0026149a"
 

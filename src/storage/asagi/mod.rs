@@ -197,6 +197,7 @@ struct BoardOpts {
     with_sha256: bool,
     interval_lock: interval_lock::IntervalLock,
     storage: Option<AsagiStorage>,
+    storage_thumbs: Option<AsagiStorage>,
 }
 
 #[derive(Debug, Serialize)]
@@ -322,6 +323,7 @@ struct AsagiInner {
     process_tx: tokio::sync::mpsc::UnboundedSender<AsagiTask>,
 
     storage: AsagiStorage,
+    storage_thumbs: Option<AsagiStorage>,
 }
 
 #[derive(Debug)]
@@ -1189,9 +1191,22 @@ impl AsagiInner {
             }
         };
 
-        let storage = match self.boards.get(meta.board).and_then(|x| x.storage.as_ref()) {
+        let board_storage = match kind {
+            MediaKind::Thumb => self
+                .boards
+                .get(meta.board)
+                .and_then(|x| x.storage_thumbs.as_ref().or(x.storage.as_ref())),
+            MediaKind::Image => self.boards.get(meta.board).and_then(|x| x.storage.as_ref()),
+        };
+        let storage = match board_storage {
             Some(s) => s,
-            None => &self.storage,
+            None => match kind {
+                MediaKind::Thumb => match self.storage_thumbs.as_ref() {
+                    Some(s) => s,
+                    None => &self.storage,
+                },
+                MediaKind::Image => &self.storage,
+            },
         };
 
         let fs_download = match storage.fs.as_ref() {
