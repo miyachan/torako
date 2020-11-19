@@ -415,10 +415,8 @@ impl AsagiBuilder {
             }
         }
 
-        // create sha2 tmp_dir
-        if self.sha_dir_structure {
-            tokio::fs::create_dir_all(std::env::temp_dir().join("torako")).await?;
-        }
+        let tmp_dir = self.tmp_dir.unwrap_or(std::env::temp_dir().join("torako"));
+        tokio::fs::create_dir_all(&tmp_dir).await?;
 
         let asagi = AsagiInner {
             client: http_client,
@@ -440,7 +438,7 @@ impl AsagiBuilder {
             },
             old_dir_structure: self.old_dir_structure,
             sha_dir_structure: self.sha_dir_structure,
-            tmp_dir: std::env::temp_dir().join("torako"),
+            tmp_dir,
             fail_on_save_error: self.fail_on_save_error,
             retries_on_save_error: self.retries_on_save_error,
             max_concurrent_downloads: self.concurrent_downloads,
@@ -552,7 +550,11 @@ impl From<&crate::config::Asagi> for AsagiBuilder {
             .map(|x| x.filesystem.as_ref())
             .flatten()
         {
-            Some(c) => Some(c.clone()),
+            Some(c) => {
+                let mut c = c.clone();
+                c.tmp_dir = c.tmp_dir.or(config.tmp_dir.clone());
+                Some(c)
+            },
             None => match &config.media_path {
                 Some(m) => Some(crate::config::AsagiFilesystemStorage {
                     disabled: false,

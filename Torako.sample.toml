@@ -146,13 +146,13 @@ request_timeout = "30m"
 ## must be downloaded.
 #media_backpressure = false
 
+# TMP dir. (Default: System Temp Path + /torako)
+#tmp_dir = "/tmp/torako"
+
 [backend.asagi.media_storage.filesystem]
 ## Media Path. This is where downloaded content is stored. If this is not
 ## provided then media downloading will be disabled.
 media_path = "/var/lib/torako"
-
-# TMP dir. (Default: System Temp Path + /torako)
-#tmp_dir = "/tmp/torako"
 
 ## Web UNIX Group. On Unix system, if this is set, all downloads and download
 ## folders will have their group ownership set to this. (Default: None)

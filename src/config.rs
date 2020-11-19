@@ -80,12 +80,12 @@ pub struct Asagi {
     pub sha_dir_structure: Option<bool>,
     #[serde(default)]
     pub boards: FxHashMap<String, AsagiBoard>,
+    #[serde(default)]
+    pub tmp_dir: Option<PathBuf>,
 
     // Options kept for backwards compatibility
     #[serde(default)]
     pub media_path: Option<PathBuf>,
-    #[serde(default)]
-    pub tmp_dir: Option<PathBuf>,
     #[serde(default)]
     pub web_unix_group: Option<String>,
 }
