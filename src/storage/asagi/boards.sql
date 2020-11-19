@@ -93,9 +93,9 @@ CREATE TABLE IF NOT EXISTS `%%BOARD%%_images` (
   `preview_reply` varchar(20),
   `total` int(10) unsigned NOT NULL DEFAULT '0',
   `banned` smallint unsigned NOT NULL DEFAULT '0',
-  `media_sha256` varbinary(32),
-  `preview_op_sha256` varbinary(32),
-  `preview_reply_sha256` varbinary(32),
+  `media_sha256` binary(32),
+  `preview_op_sha256` binary(32),
+  `preview_reply_sha256` binary(32),
 
   PRIMARY KEY (`media_id`),
   UNIQUE media_hash_index (`media_hash`),
