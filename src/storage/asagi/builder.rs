@@ -554,7 +554,7 @@ impl From<&crate::config::Asagi> for AsagiBuilder {
                 let mut c = c.clone();
                 c.tmp_dir = c.tmp_dir.or(config.tmp_dir.clone());
                 Some(c)
-            },
+            }
             None => match &config.media_path {
                 Some(m) => Some(crate::config::AsagiFilesystemStorage {
                     disabled: false,

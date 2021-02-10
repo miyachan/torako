@@ -166,16 +166,18 @@ struct MediaDescriptor {
     is_op: bool,
     thread_no: u64,
     preview: Option<String>,
+    media: String,
 }
 
 impl MediaDescriptor {
-    fn new(post: &imageboard::Post, preview: Option<String>) -> Self {
+    fn new(post: &imageboard::Post, preview: Option<String>, media: String) -> Self {
         Self {
             board: post.board,
             hash: smallstr::SmallString::from_str(post.md5.as_ref().unwrap()),
             is_op: post.is_op(),
             thread_no: post.thread_no(),
             preview,
+            media,
         }
     }
 }
@@ -676,12 +678,8 @@ impl AsagiInner {
                                     }
                                 }
 
-                                if post.has_media() {
-                                    let preview = match self.old_dir_structure {
-                                        true => Some(post.preview_orig().as_ref().unwrap().clone()),
-                                        false => None,
-                                    };
-                                    media_ids.insert(MediaDescriptor::new(&post, preview));
+                                if post.has_media() && post.media_orig().is_some() {
+                                    media_ids.insert(MediaDescriptor::new(&post, post.preview_orig().clone(), post.media_orig().clone().unwrap()));
                                 }
 
                                 let media_id = post
@@ -1167,7 +1165,11 @@ impl AsagiInner {
                 };
 
                 let mut thumb_url = self.thumb_url.clone();
-                thumb_url.set_path(&format!("/{}/{}", meta.board, image_name));
+                thumb_url.set_path(&format!(
+                    "/{}/{}",
+                    meta.board,
+                    meta.preview.as_ref().unwrap()
+                ));
                 (image_name, filename, thumb_url)
             }
             MediaKind::Image => {
@@ -1187,7 +1189,7 @@ impl AsagiInner {
                 media_url.set_path(&format!(
                     "/{}/{}",
                     meta.board,
-                    utf8_percent_encode(media_orig, URLENCODE_FRAGMENT)
+                    utf8_percent_encode(&meta.media, URLENCODE_FRAGMENT)
                 ));
 
                 (media_orig, filename, media_url)
