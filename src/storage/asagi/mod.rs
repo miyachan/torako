@@ -1075,8 +1075,8 @@ impl AsagiInner {
             .or(Some(String::from("jpg")));
         let subdir = PathBuf::from(format!(
             "{}/{}",
-            &sha[sha.len() - 1..],
-            &sha[sha.len() - 3..sha.len() - 1]
+            &sha[0..1],
+            &sha[1..3]
         ));
         let filename = format!("{}.{}", sha, ext.unwrap());
 
