@@ -12,6 +12,8 @@ use std::panic;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use std::collections::{HashMap, HashSet};
+use std::hash::{BuildHasherDefault};
 
 use clap::{crate_version, App, AppSettings, Arg, ArgMatches, SubCommand};
 use futures::prelude::*;
@@ -27,6 +29,9 @@ mod storage;
 mod util;
 
 pub use feed::FeedSinkExt;
+
+pub type SeaHashMap<K, V> = HashMap<K, V, BuildHasherDefault<seahash::SeaHasher>>;
+pub type SeaHashSet< V> = HashSet<V, BuildHasherDefault<seahash::SeaHasher>>;
 
 #[derive(Debug, Error)]
 pub enum Error {

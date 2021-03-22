@@ -259,7 +259,7 @@ impl Post {
     pub fn comment_hash(&self) -> u64 {
         match self.com.as_ref() {
             Some(t) => {
-                let mut s = fnv::FnvHasher::default();
+                let mut s = seahash::SeaHasher::default();
                 t.hash(&mut s);
                 s.finish()
             }

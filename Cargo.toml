@@ -14,59 +14,58 @@ io-uring = ["rio"]
 pgs-reindex = ["sqlx", "num_cpus", "indicatif"]
 
 [dependencies]
-clap = "2.33.3"
-log = "0.4.11"
+clap = "2"
+log = "0.4"
 tokio = { version = "0.2.23", features = ["full"] }
-serde = { version = "1.0.115", features = ["derive", "rc"] }
-serde_json = "1.0.57"
-futures = "0.3.5"
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+futures = "0.3"
 reqwest = { version = "0.10.7", default-features = false, features = ["json", "stream", "gzip", "socks", "rustls-tls"] }
-thiserror = "1.0.20"
-toml = "0.5.6"
-rustc-hash = "1.1.0"
-rand = "0.7.3"
-governor = "0.3.1"
-mysql_async = "0.24.2"
-smallstr = { version = "0.2.0", features = ["serde"] }
-chrono = "0.4.15"
-chrono-tz = "0.5.2"
-regex = "1.3.9"
-lazy_static = "1.4.0"
-htmlescape = "0.3.1"
-fnv = "1.0.7"
-parking_lot = "0.11.0"
-backoff = "0.2.1"
-humantime-serde = "1.0.0"
-humantime = "2.0.1"
-url = { version = "2.1.1", features = ["serde"] }
-ctrlc = { version = "3.1.6", features = ["termination"] }
-erased-serde = "0.3.12"
-warp = { version = "0.2.4", default-features = false }
-pretty_env_logger = "0.4.0"
-mime_guess = "2.0.3"
-rusoto_s3 = "0.45.0"
-bytes = "0.5.6"
-rusoto_core = "0.45.0"
-void = "1.0.2"
-tokio-postgres = { version = "0.5.5", features = ["with-chrono-0_4"] }
-deadpool-postgres = { version = "0.5.6",  default-features = false }
-percent-encoding = "2.1.0"
-indicatif = { version = "0.15.0", optional = true }
+thiserror = "1"
+toml = "0.5"
+rand = "0.7"
+governor = "0.3"
+mysql_async = "0.24"
+smallstr = { version = "0.2", features = ["serde"] }
+chrono = "0.4"
+chrono-tz = "0.5"
+regex = "1"
+lazy_static = "1"
+htmlescape = "0.3"
+parking_lot = "0.11"
+backoff = "0.2"
+humantime-serde = "1"
+humantime = "2"
+url = { version = "2", features = ["serde"] }
+ctrlc = { version = "3", features = ["termination"] }
+erased-serde = "0.3"
+warp = { version = "0.2", default-features = false }
+pretty_env_logger = "0.4"
+mime_guess = "2"
+rusoto_s3 = "0.45"
+bytes = "0.5"
+rusoto_core = "0.45"
+void = "1"
+tokio-postgres = { version = "0.5", features = ["with-chrono-0_4"] }
+deadpool-postgres = { version = "0.5",  default-features = false }
+percent-encoding = "2"
+indicatif = { version = "0.15", optional = true }
 sqlx = { version = "0.4.0-beta.1", optional = true, default-features = false, features = ["runtime-tokio", "mysql", "chrono", "macros"] }
-num_cpus = { version = "1.13.0", optional = true }
-probabilistic-collections = { version = "0.7.0", features = ["serde"] }
-bincode = "1.3.1"
-memchr = "2.3.3"
-sha2 = "0.9.2"
-hex = "0.4.2"
+num_cpus = { version = "1", optional = true }
+probabilistic-collections = { version = "0.7", features = ["serde"] }
+bincode = "1"
+memchr = "2"
+sha2 = "0.9"
+hex = "0.4"
+seahash = "4"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-rio = { version = "0.9.4", optional = true }
+rio = { version = "0.9", optional = true }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
-jemallocator = { version = "0.3.2", optional = true }
+jemallocator = { version = "0.3", optional = true }
 
 [target.'cfg(not(target_family = "windows"))'.dependencies]
-users = "0.10.0"
-nix = "0.18.0"
-get_if_addrs = "0.5.3"
+users = "0.10"
+nix = "0.18"
+get_if_addrs = "0.5"

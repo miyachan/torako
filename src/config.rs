@@ -3,8 +3,9 @@ use std::num::{NonZeroU32, NonZeroUsize};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use rustc_hash::FxHashMap;
 use serde::Deserialize;
+
+use crate::SeaHashMap;
 
 #[serde(default)]
 #[derive(Debug, Deserialize, Clone, Default)]
@@ -36,7 +37,7 @@ pub struct Board {
     pub url_media_filename: Option<bool>,
 
     #[serde(flatten)]
-    pub boards: FxHashMap<String, Board>,
+    pub boards: SeaHashMap<String, Board>,
 }
 
 #[serde(default)]
@@ -79,7 +80,7 @@ pub struct Asagi {
     #[serde(default)]
     pub sha_dir_structure: Option<bool>,
     #[serde(default)]
-    pub boards: FxHashMap<String, AsagiBoard>,
+    pub boards: SeaHashMap<String, AsagiBoard>,
     #[serde(default)]
     pub tmp_dir: Option<PathBuf>,
 

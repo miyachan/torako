@@ -19,7 +19,6 @@ use mysql_async::{prelude::*, TxOpts};
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use rand::distributions::Alphanumeric;
 use rand::Rng;
-use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -31,7 +30,7 @@ pub mod storage;
 mod thread;
 // mod db_metrics;
 
-use crate::{imageboard, util::interval_lock};
+use crate::{imageboard, util::interval_lock, SeaHashMap, SeaHashSet};
 pub use builder::AsagiBuilder;
 use thread::Thread;
 
@@ -293,7 +292,7 @@ struct AsagiStorage {
 
 struct AsagiInner {
     client: reqwest::Client,
-    boards: FxHashMap<&'static str, BoardOpts>,
+    boards: SeaHashMap<&'static str, BoardOpts>,
     without_triggers: bool,
     with_stats: bool,
     direct_db_pool: mysql_async::Pool,
@@ -386,11 +385,11 @@ impl AsagiInner {
     async fn save_posts(
         &self,
         mut all_posts: Vec<imageboard::Post>,
-    ) -> Result<FxHashSet<MediaDescriptor>, Error> {
+    ) -> Result<SeaHashSet<MediaDescriptor>, Error> {
         let mut processed_posts = all_posts.len();
         let trunc_100 = |v| self.truncate_meta_field(v);
         let scope = async {
-            let mut images_to_save = FxHashSet::default();
+            let mut images_to_save = SeaHashSet::default();
             let mut conn = self.get_db_conn().await?;
             while all_posts.len() > 0 {
                 let save_start = Instant::now();
@@ -452,7 +451,7 @@ impl AsagiInner {
                                 None
                             }
                         })
-                        .collect::<FxHashMap<_, _>>();
+                        .collect::<SeaHashMap<_, _>>();
                     if old_posts.len() > 0 {
                         debug!(
                             "Looking up {} old posts on board {}",
@@ -492,7 +491,7 @@ impl AsagiInner {
 
                     let mut tx = conn.start_transaction(TxOpts::default()).await?;
                     let result = async {
-                        let mut media_map = FxHashMap::default();
+                        let mut media_map = SeaHashMap::default();
                         let mut dups = 0;
                         let media_params = posts
                             .iter()
@@ -621,10 +620,10 @@ impl AsagiInner {
                             .await?;
                         }
 
-                        let mut threads: FxHashMap<u64, Thread> = FxHashMap::default();
-                        let mut daily: FxHashMap<u64, stats::Daily> = FxHashMap::default();
-                        let mut users: FxHashMap<String, stats::User> = FxHashMap::default();
-                        let mut media_ids: FxHashSet<MediaDescriptor> = FxHashSet::default();
+                        let mut threads: SeaHashMap<u64, Thread> = Default::default();
+                        let mut daily: SeaHashMap<u64, stats::Daily> = Default::default();
+                        let mut users: SeaHashMap<String, stats::User> = Default::default();
+                        let mut media_ids: SeaHashSet<MediaDescriptor> = Default::default();
 
                         let rows = posts.len();
                         let board_values = posts
@@ -1084,7 +1083,7 @@ impl AsagiInner {
     // not documented anywhere), but this is mostly true.
     async fn lookup_media(
         &self,
-        hashes: FxHashSet<MediaDescriptor>,
+        hashes: SeaHashSet<MediaDescriptor>,
     ) -> Result<Vec<(thread::Media, MediaDescriptor)>, Error> {
         if hashes.len() == 0 {
             return Ok(vec![]);
@@ -1104,7 +1103,7 @@ impl AsagiInner {
         let m = hashes
             .into_iter()
             .map(|h| (String::from(h.hash.as_ref()), h))
-            .collect::<FxHashMap<_, _>>();
+            .collect::<SeaHashMap<_, _>>();
         let mut conn = self.get_db_conn().await?;
         Ok(conn
             .exec_map(

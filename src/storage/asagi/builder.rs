@@ -11,8 +11,8 @@ use futures::prelude::*;
 use futures::task::AtomicWaker;
 use log::{info, warn};
 use mysql_async::prelude::*;
-use rustc_hash::FxHashMap;
 
+use crate::SeaHashMap;
 use super::{Asagi, AsagiInner, AsagiStorage, AsagiTask, BoardOpts, Error};
 
 #[derive(Debug, Default)]
@@ -23,8 +23,8 @@ struct AsagiBuilderStorage {
 }
 
 pub struct AsagiBuilder {
-    boards: FxHashMap<&'static str, BoardOpts>,
-    board_configs: FxHashMap<
+    boards: SeaHashMap<&'static str, BoardOpts>,
+    board_configs: SeaHashMap<
         &'static str,
         (
             Option<crate::config::AsagiStorage>,
@@ -59,8 +59,8 @@ pub struct AsagiBuilder {
 impl Default for AsagiBuilder {
     fn default() -> Self {
         AsagiBuilder {
-            boards: FxHashMap::default(),
-            board_configs: FxHashMap::default(),
+            boards: SeaHashMap::default(),
+            board_configs: SeaHashMap::default(),
             mysql_url: None,
             mysql_charset: String::from("utf8mb4"),
             media_path: None,

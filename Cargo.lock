@@ -2262,12 +2262,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4c691c0e608126e00913e33f0ccf3727d5fc84573623b8d65b2df340b5201783"
 
 [[package]]
-name = "rustc-hash"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
-
-[[package]]
 name = "rustc_version"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2326,6 +2320,12 @@ dependencies = [
  "ring",
  "untrusted",
 ]
+
+[[package]]
+name = "seahash"
+version = "4.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c107b6f4780854c8b126e228ea8869f4d7b71260f962fefb57b996b8959ba6b"
 
 [[package]]
 name = "security-framework"
@@ -3017,7 +3017,6 @@ dependencies = [
  "ctrlc",
  "deadpool-postgres",
  "erased-serde",
- "fnv",
  "futures",
  "get_if_addrs",
  "governor",
@@ -3044,7 +3043,7 @@ dependencies = [
  "rio",
  "rusoto_core",
  "rusoto_s3",
- "rustc-hash",
+ "seahash",
  "serde",
  "serde_json",
  "sha2 0.9.2",

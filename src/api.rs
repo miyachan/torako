@@ -5,9 +5,10 @@ use std::time::{Duration, Instant, SystemTime};
 use clap::crate_version;
 use futures::prelude::*;
 use log::{error, info, warn};
-use rustc_hash::FxHashMap;
 use serde::Serialize;
 use warp::{http::StatusCode, Filter};
+
+use crate::SeaHashMap;
 
 #[derive(Serialize)]
 struct BoardMetrics {
@@ -64,9 +65,9 @@ struct Info {
     #[serde(with = "humantime_serde")]
     started_at: Option<SystemTime>,
     version: String,
-    boards: FxHashMap<&'static str, BoardMetrics>,
+    boards: SeaHashMap<&'static str, BoardMetrics>,
     all_boards: BoardMetrics,
-    storage: FxHashMap<&'static str, Box<dyn erased_serde::Serialize + Send>>,
+    storage: SeaHashMap<&'static str, Box<dyn erased_serde::Serialize + Send>>,
     ok: bool,
 }
 

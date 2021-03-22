@@ -13,10 +13,10 @@ use log::{debug, error, info, warn};
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use reqwest::{self, Url};
-use rustc_hash::FxHashMap;
 use thiserror::Error;
 use tokio::time::{delay_until, Delay};
 
+use crate::SeaHashMap;
 use super::{CatalogPage, CatalogThread, Post, Thread};
 
 #[derive(Debug, Error)]
@@ -99,7 +99,7 @@ struct WatchedThread {
     last_modified: u64,
     sticky: bool,
     closed: bool,
-    posts: FxHashMap<u64, WatchedPost>,
+    posts: SeaHashMap<u64, WatchedPost>,
 }
 
 impl WatchedThread {
@@ -129,7 +129,7 @@ impl From<&CatalogThread> for WatchedThread {
             last_modified: thread.last_modified,
             sticky: thread.sticky,
             closed: thread.closed,
-            posts: FxHashMap::default(),
+            posts: Default::default(),
         }
     }
 }
@@ -210,7 +210,7 @@ pub struct BoardStream {
     refresh_rate: Duration,
     base_url: &'static str,
     board_url: reqwest::Url,
-    watched: FxHashMap<u64, WatchedThread>,
+    watched: SeaHashMap<u64, WatchedThread>,
     rate_limiter: Option<
         Arc<
             governor::RateLimiter<
@@ -263,7 +263,7 @@ impl BoardStream {
             delay: delay_until(tokio::time::Instant::now()),
             state: State::Sleeping(None),
             board_url,
-            watched: FxHashMap::default(),
+            watched: SeaHashMap::default(),
             rate_limiter,
             concurrency_limit,
             base_url,
