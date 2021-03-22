@@ -807,15 +807,14 @@ impl AsagiInner {
                             // Update threads
                             if threads.len() > 0 {
                                 let rows = threads.len();
-                                let thread_table = format!("INSERT INTO `{}_threads` (thread_num, time_op, time_last, time_bump, time_ghost, time_ghost_bump, time_last_modified, nreplies, nimages, locked)
-                                    VALUES (?, COALESCE(?, 0), ?, ?, ?, ?, ?, ?, ?, COALESCE(?, false))", &board);
+                                let thread_table = format!("INSERT INTO `{}_threads` (thread_num, time_op, time_last, time_bump, time_ghost, time_ghost_bump, time_last_modified, nreplies, nimages)
+                                    VALUES (?, COALESCE(?, 0), ?, ?, ?, ?, ?, ?, ?)", &board);
                                 let thread_query = std::iter::once(thread_table.as_str())
-                                    .chain((0..(rows - 1)).map(|_| ", (?, COALESCE(?, 0), ?, ?, ?, ?, ?, ?, ?, COALESCE(?, false))"))
+                                    .chain((0..(rows - 1)).map(|_| ", (?, COALESCE(?, 0), ?, ?, ?, ?, ?, ?, ?)"))
                                     .chain(
                                         std::iter::once(
                                             " ON DUPLICATE KEY UPDATE
                                             time_op = GREATEST(time_op, VALUES(time_op)),
-                                            locked = COALESCE(VALUES(locked), locked),
                                             time_last = GREATEST(time_last, VALUES(time_last)),
                                             time_last_modified = GREATEST(time_last_modified, VALUES(time_last_modified)),
                                             time_bump = GREATEST(time_bump, VALUES(time_bump)),
@@ -838,7 +837,6 @@ impl AsagiInner {
                                             thread.time_last_modified.into(), // time_last_modified
                                             thread.n_replies.into(),          // nreplies,
                                             thread.n_images.into(),           // nimages
-                                            thread.locked.into(),             // locked
                                         ]);
                                         values.into_vec()
                                     })
