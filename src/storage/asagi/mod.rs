@@ -1073,11 +1073,7 @@ impl AsagiInner {
             .extension()
             .map(|x| x.to_string_lossy().to_string())
             .or(Some(String::from("jpg")));
-        let subdir = PathBuf::from(format!(
-            "{}/{}",
-            &sha[0..1],
-            &sha[1..3]
-        ));
+        let subdir = PathBuf::from(format!("{}/{}", &sha[0..1], &sha[1..3]));
         let filename = format!("{}.{}", sha, ext.unwrap());
 
         return subdir.join(filename);

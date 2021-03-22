@@ -142,6 +142,7 @@ struct WatchedPost {
     sticky: bool,
     closed: bool,
     comment_hash: u64,
+    unique_ips: u32,
 }
 
 impl WatchedPost {
@@ -149,6 +150,7 @@ impl WatchedPost {
         self.sticky != other.sticky
             || self.closed != other.closed
             || self.comment_hash != other.comment_hash()
+            || self.unique_ips != other.unique_ips
     }
 }
 
@@ -159,6 +161,7 @@ impl From<&Post> for WatchedPost {
             resto: post.resto,
             sticky: post.sticky,
             closed: post.closed,
+            unique_ips: post.unique_ips,
             comment_hash: post.comment_hash(),
         }
     }
