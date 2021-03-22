@@ -739,7 +739,7 @@ impl AsagiInner {
                                     comment,                              // comment
                                     mysql_async::Value::NULL,             // delpass,
                                     post.sticky.into(),                   // sticky
-                                    post.closed.into(),                   // locked
+                                    (post.closed && !post.archived).into(), // locked
                                     poster_hash,                          // poster_hash,
                                     poster_country,                       // poster_country,
                                     exif,                                 // exif
@@ -780,8 +780,8 @@ impl AsagiInner {
                                     " ON DUPLICATE KEY UPDATE
                                     deleted = VALUES(deleted),
                                     timestamp_expired = COALESCE(NULLIF(VALUES(timestamp_expired), 0), timestamp_expired),
-                                    sticky = COALESCE(VALUES(sticky), sticky),
-                                    locked = COALESCE(VALUES(locked), locked),
+                                    sticky = COALESCE(VALUES(sticky), sticky) OR sticky,
+                                    locked = COALESCE(VALUES(locked), locked) OR locked,
                                     comment = COALESCE(VALUES(comment), comment),
                                     exif = COALESCE(VALUES(exif), exif);
                                 ",
@@ -808,15 +808,14 @@ impl AsagiInner {
                             // Update threads
                             if threads.len() > 0 {
                                 let rows = threads.len();
-                                let thread_table = format!("INSERT INTO `{}_threads` (thread_num, time_op, time_last, time_bump, time_ghost, time_ghost_bump, time_last_modified, nreplies, nimages, sticky, locked)
-                                    VALUES (?, COALESCE(?, 0), ?, ?, ?, ?, ?, ?, ?, COALESCE(?, false), COALESCE(?, false))", &board);
+                                let thread_table = format!("INSERT INTO `{}_threads` (thread_num, time_op, time_last, time_bump, time_ghost, time_ghost_bump, time_last_modified, nreplies, nimages, locked)
+                                    VALUES (?, COALESCE(?, 0), ?, ?, ?, ?, ?, ?, ?, COALESCE(?, false))", &board);
                                 let thread_query = std::iter::once(thread_table.as_str())
-                                    .chain((0..(rows - 1)).map(|_| ", (?, COALESCE(?, 0), ?, ?, ?, ?, ?, ?, ?, COALESCE(?, false), COALESCE(?, false))"))
+                                    .chain((0..(rows - 1)).map(|_| ", (?, COALESCE(?, 0), ?, ?, ?, ?, ?, ?, ?, COALESCE(?, false))"))
                                     .chain(
                                         std::iter::once(
                                             " ON DUPLICATE KEY UPDATE
                                             time_op = GREATEST(time_op, VALUES(time_op)),
-                                            sticky = COALESCE(VALUES(sticky), sticky),
                                             locked = COALESCE(VALUES(locked), locked),
                                             time_last = GREATEST(time_last, VALUES(time_last)),
                                             time_last_modified = GREATEST(time_last_modified, VALUES(time_last_modified)),
@@ -840,7 +839,6 @@ impl AsagiInner {
                                             thread.time_last_modified.into(), // time_last_modified
                                             thread.n_replies.into(),          // nreplies,
                                             thread.n_images.into(),           // nimages
-                                            thread.sticky.into(),             // sticky,
                                             thread.locked.into(),             // locked
                                         ]);
                                         values.into_vec()
