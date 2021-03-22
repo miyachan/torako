@@ -593,12 +593,9 @@ impl Stream for BoardStream {
                                             self.host, self.board, thread_no
                                         );
                                         match self.watched.get(&thread_no) {
-                                            Some(p) => {
-                                                let deleted = p
-                                                    .posts
-                                                    .iter()
-                                                    .map(|p| Post::deleted(&self.board, *p.0))
-                                                    .collect::<Vec<_>>();
+                                            Some(_) => {
+                                                let deleted =
+                                                    vec![Post::deleted(&self.board, thread_no)];
                                                 self.watched.remove(&thread_no);
                                                 return Poll::Ready(Some(deleted));
                                             }
