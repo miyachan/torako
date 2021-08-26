@@ -85,7 +85,7 @@ pub struct SearchMetricsProvider {
 
 impl super::MetricsProvider for SearchMetricsProvider {
     fn name(&self) -> &'static str {
-        "pg_search"
+        "lnx_search"
     }
 
     fn metrics(
