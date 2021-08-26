@@ -1,7 +1,7 @@
 {
     "name": "%%NAME%%",
 
-    "writer_buffer": 6000000,
+    "writer_buffer": 144000000,
     "writer_threads": 12,
     "reader_threads": 12,
 
@@ -21,11 +21,13 @@
         "thread_no": {
            "type": "u64",
            "stored": false,
+           "indexed": true,
            "fast": "single"
         },
         "post_no": {
            "type": "u64",
            "stored": false,
+           "indexed": true,
            "fast": "single"
         },
         "subject": {
@@ -51,6 +53,7 @@
         "since4_pass": {
             "type": "u64",
             "stored": false,
+            "indexed": true,
             "fast": "single"
         },
         "country": {
@@ -68,16 +71,19 @@
         "image_width": {
             "type": "u64",
             "stored": false,
+            "indexed": true,
             "fast": "single"
         },
         "image_height": {
             "type": "u64",
             "stored": false,
+            "indexed": true,
             "fast": "single"
         },
         "ts": {
             "type": "date",
             "stored": false,
+            "indexed": true,
             "fast": "single"
         },
         "comment": {
@@ -87,31 +93,37 @@
         "deleted": {
             "type": "u64",
             "stored": false,
+            "indexed": true,
             "fast": "single"
         },
         "ghost": {
             "type": "u64",
             "stored": false,
+            "indexed": true,
             "fast": "single"
         },
         "sticky": {
             "type": "u64",
             "stored": false,
+            "indexed": true,
             "fast": "single"
         },
         "spoiler": {
             "type": "u64",
             "stored": false,
+            "indexed": true,
             "fast": "single"
         },
         "op": {
             "type": "u64",
             "stored": false,
+            "indexed": true,
             "fast": "single"
         },
         "capcode": {
             "type": "u64",
             "stored": false,
+            "indexed": true,
             "fast": "single"
         }
     },
