@@ -7,13 +7,13 @@ use jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
+use std::collections::{HashMap, HashSet};
 use std::env;
+use std::hash::BuildHasherDefault;
 use std::panic;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use std::collections::{HashMap, HashSet};
-use std::hash::{BuildHasherDefault};
 
 use clap::{crate_version, App, AppSettings, Arg, ArgMatches, SubCommand};
 use futures::prelude::*;
@@ -31,7 +31,7 @@ mod util;
 pub use feed::FeedSinkExt;
 
 pub type SeaHashMap<K, V> = HashMap<K, V, BuildHasherDefault<seahash::SeaHasher>>;
-pub type SeaHashSet< V> = HashSet<V, BuildHasherDefault<seahash::SeaHasher>>;
+pub type SeaHashSet<V> = HashSet<V, BuildHasherDefault<seahash::SeaHasher>>;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -39,6 +39,8 @@ pub enum Error {
     Asagi(#[from] storage::asagi::Error),
     #[error("PG Search: {}", .0)]
     PG(#[from] storage::search_pg::Error),
+    #[error("Lnx Search: {}", .0)]
+    Lnx(#[from] storage::search_lnx::Error),
 }
 
 async fn run_async(config: config::Config) -> i32 {
@@ -185,6 +187,23 @@ async fn run_async(config: config::Config) -> i32 {
         _ => None,
     };
 
+    let search_lnx = match config.backend.asagi_lnx_search.as_ref() {
+        Some(conf) if !conf.disabled => {
+            let builder = storage::search_lnx::SearchBuilder::from(conf);
+            match builder.build().await {
+                Ok(a) => Some(a),
+                Err(err) => {
+                    error!(
+                        "Failed to initialize asagi pg storage search backend: {}",
+                        err
+                    );
+                    return 1;
+                }
+            }
+        }
+        _ => None,
+    };
+
     let running = AtomicBool::new(true);
     let (end_stream, stream_ender) = tokio::sync::oneshot::channel();
     let mut end_stream = Some(end_stream);
@@ -212,6 +231,9 @@ async fn run_async(config: config::Config) -> i32 {
     if let Some(search) = search.as_ref() {
         storage_metrics.push(Box::new(search.metrics_provider()));
     }
+    if let Some(search) = search_lnx.as_ref() {
+        storage_metrics.push(Box::new(search.metrics_provider()));
+    }
 
     if let Some(addr) = config.api_addr {
         let addr_interface = config.api_addr_interface;
@@ -230,6 +252,7 @@ async fn run_async(config: config::Config) -> i32 {
     // let res = asagi.feed_all(&mut boards_stream);
     let mut asagi = asagi.map(|asagi| asagi.sink_map_err(|err| Error::from(err)));
     let mut search = search.map(|search| search.sink_map_err(|err| Error::from(err)));
+    let mut search_lnx = search_lnx.map(|search| search.sink_map_err(|err| Error::from(err)));
     let null = config
         .backend
         .null
@@ -239,13 +262,27 @@ async fn run_async(config: config::Config) -> i32 {
         })
         .map(|_| futures::sink::drain().sink_map_err(|_| unreachable!()));
 
-    let res = match (asagi.as_mut(), search.as_mut()) {
-        (Some(asagi), None) => asagi.feed_all(&mut boards_stream).await,
-        (None, Some(search)) => search.feed_all(&mut boards_stream).await,
-        (Some(asagi), Some(search)) => {
+    let res = match (asagi.as_mut(), search.as_mut(), search_lnx.as_mut()) {
+        (Some(asagi), None, None) => asagi.feed_all(&mut boards_stream).await,
+        (None, Some(search), None) => search.feed_all(&mut boards_stream).await,
+        (None, None, Some(search)) => search.feed_all(&mut boards_stream).await,
+        (Some(asagi), Some(search), None) => {
             let mut asagi = asagi.fanout(search);
             asagi.feed_all(&mut boards_stream).await
         }
+        (Some(asagi), None, Some(search)) => {
+            let mut asagi = asagi.fanout(search);
+            asagi.feed_all(&mut boards_stream).await
+        }
+        (None, Some(asagi), Some(search)) => {
+            let mut asagi = asagi.fanout(search);
+            asagi.feed_all(&mut boards_stream).await
+        },
+        (Some(asagi), Some(search), Some(search_lnx)) => {
+            let asagi = asagi.fanout(search);
+            let mut asagi = asagi.fanout(search_lnx);
+            asagi.feed_all(&mut boards_stream).await
+        },
         _ if null.is_some() => null.unwrap().feed_all(&mut boards_stream).await,
         _ => {
             error!("No valid storage backend was configured.");
@@ -262,7 +299,12 @@ async fn run_async(config: config::Config) -> i32 {
                 Some(search) => futures::future::Either::Left(search.close()),
                 None => futures::future::Either::Right(futures::future::ready(Ok(()))),
             };
-            let close = futures::future::join(asagi_close, search_close)
+            let search_lnx_close = match search_lnx.as_mut() {
+                Some(search) => futures::future::Either::Left(search.close()),
+                None => futures::future::Either::Right(futures::future::ready(Ok(()))),
+            };
+            let close = futures::future::join(asagi_close, search_close).map(|(a, b)| a.and(b));
+            let close = futures::future::join(close, search_lnx_close)
                 .map(|(a, b)| a.and(b))
                 .await;
             match close {

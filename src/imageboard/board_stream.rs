@@ -16,8 +16,8 @@ use reqwest::{self, Url};
 use thiserror::Error;
 use tokio::time::{delay_until, Delay};
 
-use crate::SeaHashMap;
 use super::{CatalogPage, CatalogThread, Post, Thread};
+use crate::SeaHashMap;
 
 #[derive(Debug, Error)]
 pub enum Error {

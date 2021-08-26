@@ -1,0 +1,119 @@
+{
+    "name": "%%NAME%%",
+
+    "writer_buffer": 6000000,
+    "writer_threads": 12,
+    "reader_threads": 12,
+
+    "max_concurrency": 24,
+    "search_fields": [
+        "comment"
+    ],
+
+    "storage_type": "filesystem",
+    "set_conjunction_by_default": true,
+
+    "fields": {
+        "board": {
+            "type": "text",
+            "stored": false
+        },
+        "thread_no": {
+           "type": "u64",
+           "stored": false,
+           "fast": "single"
+        },
+        "post_no": {
+           "type": "u64",
+           "stored": false,
+           "fast": "single"
+        },
+        "subject": {
+            "type": "text",
+            "stored": false
+        },
+        "username": {
+            "type": "text",
+            "stored": false
+        },
+        "tripcode": {
+            "type": "text",
+            "stored": false
+        },
+        "email": {
+            "type": "text",
+            "stored": false
+        },
+        "unique_id": {
+            "type": "text",
+            "stored": false
+        },
+        "since4_pass": {
+            "type": "u64",
+            "stored": false,
+            "fast": "single"
+        },
+        "country": {
+            "type": "text",
+            "stored": false
+        },
+        "filename": {
+            "type": "text",
+            "stored": false
+        },
+        "image_hash": {
+            "type": "text",
+            "stored": false
+        },
+        "image_width": {
+            "type": "u64",
+            "stored": false,
+            "fast": "single"
+        },
+        "image_height": {
+            "type": "u64",
+            "stored": false,
+            "fast": "single"
+        },
+        "ts": {
+            "type": "date",
+            "stored": false,
+            "fast": "single"
+        },
+        "comment": {
+            "type": "text",
+            "stored": false
+        },
+        "deleted": {
+            "type": "u64",
+            "stored": false,
+            "fast": "single"
+        },
+        "ghost": {
+            "type": "u64",
+            "stored": false,
+            "fast": "single"
+        },
+        "sticky": {
+            "type": "u64",
+            "stored": false,
+            "fast": "single"
+        },
+        "spoiler": {
+            "type": "u64",
+            "stored": false,
+            "fast": "single"
+        },
+        "op": {
+            "type": "u64",
+            "stored": false,
+            "fast": "single"
+        },
+        "capcode": {
+            "type": "u64",
+            "stored": false,
+            "fast": "single"
+        }
+    },
+    "boost_fields": {}
+}

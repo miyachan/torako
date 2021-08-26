@@ -1,6 +1,7 @@
 use std::pin::Pin;
 
 pub mod asagi;
+pub mod search_lnx;
 pub mod search_pg;
 
 pub trait MetricsProvider: Sync + Send {

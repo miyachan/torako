@@ -12,8 +12,8 @@ use futures::task::AtomicWaker;
 use log::{info, warn};
 use mysql_async::prelude::*;
 
-use crate::SeaHashMap;
 use super::{Asagi, AsagiInner, AsagiStorage, AsagiTask, BoardOpts, Error};
+use crate::SeaHashMap;
 
 #[derive(Debug, Default)]
 struct AsagiBuilderStorage {

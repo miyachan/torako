@@ -296,6 +296,32 @@ database_url = "postgres://localhost/"
 ## Default 0
 #retries_on_save_error = 0
 
+[backend.asagi_lnx_search]
+disabled = true
+
+## Database URL.
+database_url = "http://localhost:8000/"
+
+## The name of the index that should be used.
+index = "posts"
+
+## See the option description under backend.asagi
+## Default: true
+#fail_on_save_error = true
+
+## Inflight Posts.  See the option description under backend.asagi
+## Default: unlimited
+#inflight_posts = 65536
+
+## See the option description under backend.asagi
+## Default 0
+#retries_on_save_error = 0
+
+## Authentication Key
+# authentication_key = ""
+
+# ---
+
 ## You can set custom storage backends for specific
 ## boards by using this format. This mirrors the options available in
 ## `backend.asagi.media_storage`. Note that specifying a board specific storage

@@ -7,8 +7,8 @@ use serde::Deserialize;
 
 use crate::SeaHashMap;
 
-#[serde(default)]
 #[derive(Debug, Deserialize, Clone, Default)]
+#[serde(default)]
 pub struct Config {
     pub api_addr: Option<SocketAddr>,
     pub api_addr_interface: Option<String>,
@@ -24,8 +24,8 @@ pub struct Config {
     pub backend: Backend,
 }
 
-#[serde(default)]
 #[derive(Debug, Deserialize, Clone, Default)]
+#[serde(default)]
 pub struct Board {
     pub tls: Option<bool>,
     pub host: Option<String>,
@@ -40,11 +40,12 @@ pub struct Board {
     pub boards: SeaHashMap<String, Board>,
 }
 
-#[serde(default)]
 #[derive(Debug, Deserialize, Clone, Default)]
+#[serde(default)]
 pub struct Backend {
     pub asagi: Option<Asagi>,
     pub asagi_pg_search: Option<AsagiSearch>,
+    pub asagi_lnx_search: Option<AsagiLnxSearch>,
     pub null: Option<NullBackend>,
 }
 
@@ -162,8 +163,8 @@ pub struct AsagiB2Storage {
     pub bloom: Option<AsagiB2StorageBloom>,
 }
 
-#[serde(default)]
 #[derive(Debug, Deserialize, Clone, Default)]
+#[serde(default)]
 pub struct AsagiB2StorageBloom {
     pub disabled: Option<bool>,
     pub file_key: Option<String>,
@@ -184,6 +185,22 @@ pub struct AsagiSearch {
     pub fail_on_save_error: Option<bool>,
     #[serde(default)]
     pub retries_on_save_error: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct AsagiLnxSearch {
+    #[serde(default)]
+    pub disabled: bool,
+    pub database_url: url::Url,
+    pub index: String,
+    #[serde(default)]
+    pub inflight_posts: Option<NonZeroUsize>,
+    #[serde(default)]
+    pub fail_on_save_error: Option<bool>,
+    #[serde(default)]
+    pub retries_on_save_error: Option<usize>,
+    #[serde(default)]
+    pub authentication_key: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
