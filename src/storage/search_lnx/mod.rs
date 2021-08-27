@@ -144,6 +144,7 @@ impl SearchInner {
                     self
                         .client
                         .post(self.upload_url.clone())
+                        .json(&posts)
                         .send()
                         .and_then(|resp| futures::future::ready(resp.error_for_status()))
                 })
