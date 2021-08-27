@@ -6,12 +6,12 @@ use std::sync::{
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
+use backoff::backoff::Backoff;
 use futures::prelude::*;
 use futures::task::AtomicWaker;
 use log::{debug, error, warn};
 use serde::Serialize;
 use thiserror::Error;
-use backoff::backoff::Backoff;
 
 mod builder;
 mod post;
@@ -34,6 +34,7 @@ pub enum Error {
 struct SearchInner {
     client: reqwest::Client,
     upload_url: url::Url,
+    commit_url: url::Url,
     max_inflight_posts: usize,
     fail_on_save_error: bool,
     retries_on_save_error: usize,
@@ -146,6 +147,22 @@ impl SearchInner {
                 }
                 continue;
             }
+
+            let r = self
+                .client
+                .post(self.commit_url.clone())
+                .send()
+                .await
+                .and_then(|resp| resp.error_for_status());
+
+            if let Err(r) = r {
+                err = Some(Err(Error::DB(r)));
+                if let Some(b) = backoff.next_backoff() {
+                    tokio::time::delay_for(b).await;
+                }
+                continue;
+            }
+
             self.metrics.incr_posts(rows as u64);
             self.metrics.incr_query_time(start.elapsed());
             self.notify_post(rows);
@@ -162,7 +179,7 @@ impl SearchInner {
         let sz = item.len();
         match self.save_posts(item).await {
             Ok(_) => debug!(
-                "Flushed {} posts to postgres. [First]: {}/{}/{}",
+                "Flushed {} posts to lnx. [First]: {}/{}/{}",
                 sz, board, thread_no, post_no
             ),
             Err(err) => {

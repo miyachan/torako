@@ -277,14 +277,14 @@ async fn run_async(config: config::Config) -> i32 {
         (None, Some(asagi), Some(search)) => {
             let mut asagi = asagi.fanout(search);
             asagi.feed_all(&mut boards_stream).await
-        },
+        }
         (Some(asagi), Some(search), Some(search_lnx)) => {
             let asagi = asagi.fanout(search);
             let mut asagi = asagi.fanout(search_lnx);
             asagi.feed_all(&mut boards_stream).await
-        },
-        _ if null.is_some() => null.unwrap().feed_all(&mut boards_stream).await,
-        _ => {
+        }
+        (None, None, None) if null.is_some() => null.unwrap().feed_all(&mut boards_stream).await,
+        (None, None, None) => {
             error!("No valid storage backend was configured.");
             return 1;
         }

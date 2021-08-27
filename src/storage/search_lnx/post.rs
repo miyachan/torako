@@ -55,9 +55,6 @@ pub struct Post<'a> {
     capcode: Option<u64>,
 }
 
-
-
-
 impl<'a> From<&'a crate::imageboard::Post> for Post<'a> {
     fn from(post: &'a crate::imageboard::Post) -> Self {
         Post {

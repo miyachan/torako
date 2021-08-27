@@ -12,11 +12,13 @@
 
     "storage_type": "filesystem",
     "set_conjunction_by_default": true,
+    "use_fast_fuzzy": false,
+    "strip_stop_words": false,
 
     "fields": {
         "board": {
             "type": "text",
-            "stored": false
+            "stored": true
         },
         "thread_no": {
            "type": "u64",
@@ -26,7 +28,7 @@
         },
         "post_no": {
            "type": "u64",
-           "stored": false,
+           "stored": true,
            "indexed": true,
            "fast": "single"
         },
@@ -81,7 +83,7 @@
             "fast": "single"
         },
         "ts": {
-            "type": "date",
+            "type": "u64",
             "stored": false,
             "indexed": true,
             "fast": "single"
