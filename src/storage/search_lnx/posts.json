@@ -22,7 +22,7 @@
         },
         "thread_no": {
            "type": "u64",
-           "stored": false,
+           "stored": true,
            "indexed": true,
            "fast": "single"
         },

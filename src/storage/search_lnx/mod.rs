@@ -125,6 +125,7 @@ impl Search {
 
 impl SearchInner {
     async fn save_posts(&self, item: Vec<imageboard::Post>) -> Result<(), Error> {
+        let delete_posts = item.iter().map(|p| p.into()).collect::<Vec<post::DeletePost>>();
         let posts = item.iter().map(|p| p.into()).collect::<Vec<post::Post>>();
         let mut err = None;
         let mut backoff = backoff::ExponentialBackoff::default();
@@ -132,28 +133,28 @@ impl SearchInner {
         let start = Instant::now();
         let rows = posts.len();
         for _ in 0..=self.retries_on_save_error {
-            let r = self
-                .client
-                .post(self.upload_url.clone())
-                .json(&posts)
-                .send()
-                .await
-                .and_then(|resp| resp.error_for_status());
-
-            if let Err(r) = r {
-                err = Some(Err(Error::DB(r)));
-                if let Some(b) = backoff.next_backoff() {
-                    tokio::time::delay_for(b).await;
-                }
-                continue;
-            }
 
             let r = self
                 .client
-                .post(self.commit_url.clone())
+                .delete(self.upload_url.clone())
+                .json(&delete_posts)
                 .send()
-                .await
-                .and_then(|resp| resp.error_for_status());
+                .and_then(|resp| futures::future::ready(resp.error_for_status()))
+                .and_then(|_| {
+                    self
+                        .client
+                        .post(self.upload_url.clone())
+                        .send()
+                        .and_then(|resp| futures::future::ready(resp.error_for_status()))
+                })
+                .and_then(|_| {
+                    self
+                        .client
+                        .post(self.commit_url.clone())
+                        .send()
+                        .and_then(|resp| futures::future::ready(resp.error_for_status()))
+                })
+                .await;
 
             if let Err(r) = r {
                 err = Some(Err(Error::DB(r)));

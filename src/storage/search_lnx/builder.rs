@@ -86,11 +86,11 @@ impl SearchBuilder {
         // info!("Creating index (if needed)...");
         // TODO
 
-        let mut upload_url = self.db_url.as_ref().unwrap().clone();
+        let mut upload_url = self.db_url.clone().unwrap();
         upload_url.set_path(&format!("/indexes/{}/documents", self.index));
         upload_url.set_query(Some("wait=true"));
 
-        let mut commit_url = self.db_url.unwrap().clone();
+        let mut commit_url = self.db_url.clone().unwrap();
         commit_url.set_path(&format!("/indexes/{}/commit", self.index));
 
         let (process_tx, process_rx) = tokio::sync::mpsc::unbounded_channel();
