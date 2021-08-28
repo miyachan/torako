@@ -88,7 +88,7 @@ impl<'a> From<&'a crate::imageboard::Post> for Post<'a> {
 pub struct DeleteField<T> {
     #[serde(rename = "type")]
     t: &'static str,
-    value: [T; 1]
+    value: [T; 1],
 }
 
 #[derive(Debug, Serialize)]
@@ -97,20 +97,17 @@ pub struct DeletePost {
     post_no: DeleteField<u64>,
 }
 
-
 impl From<&crate::imageboard::Post> for DeletePost {
     fn from(post: &crate::imageboard::Post) -> Self {
         DeletePost {
             board: DeleteField {
                 t: "text",
-                value: [post.board]
+                value: [post.board],
             },
-            post_no: DeleteField{
+            post_no: DeleteField {
                 t: "u64",
-                value: [post.no]
+                value: [post.no],
             },
         }
     }
 }
-
-

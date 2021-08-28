@@ -201,6 +201,8 @@ pub struct AsagiLnxSearch {
     pub retries_on_save_error: Option<usize>,
     #[serde(default)]
     pub authentication_key: Option<String>,
+    #[serde(with = "humantime_serde")]
+    pub commit_sync_interval: Option<Duration>,
 }
 
 #[derive(Debug, Deserialize, Clone)]

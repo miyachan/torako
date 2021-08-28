@@ -12,6 +12,7 @@ use futures::task::AtomicWaker;
 use log::{debug, error, warn};
 use serde::Serialize;
 use thiserror::Error;
+use tokio::sync::RwLock;
 
 mod builder;
 mod post;
@@ -34,10 +35,11 @@ pub enum Error {
 struct SearchInner {
     client: reqwest::Client,
     upload_url: url::Url,
-    commit_url: url::Url,
     max_inflight_posts: usize,
     fail_on_save_error: bool,
     retries_on_save_error: usize,
+    commit_lock: Arc<RwLock<()>>,
+    dirty: Arc<AtomicBool>,
 
     failed: AtomicBool,
     inflight_posts: AtomicUsize,
@@ -125,7 +127,10 @@ impl Search {
 
 impl SearchInner {
     async fn save_posts(&self, item: Vec<imageboard::Post>) -> Result<(), Error> {
-        let delete_posts = item.iter().map(|p| p.into()).collect::<Vec<post::DeletePost>>();
+        let delete_posts = item
+            .iter()
+            .map(|p| p.into())
+            .collect::<Vec<post::DeletePost>>();
         let posts = item.iter().map(|p| p.into()).collect::<Vec<post::Post>>();
         let mut err = None;
         let mut backoff = backoff::ExponentialBackoff::default();
@@ -133,7 +138,7 @@ impl SearchInner {
         let start = Instant::now();
         let rows = posts.len();
         for _ in 0..=self.retries_on_save_error {
-
+            let t = self.commit_lock.read().await;
             let r = self
                 .client
                 .delete(self.upload_url.clone())
@@ -141,17 +146,9 @@ impl SearchInner {
                 .send()
                 .and_then(|resp| futures::future::ready(resp.error_for_status()))
                 .and_then(|_| {
-                    self
-                        .client
+                    self.client
                         .post(self.upload_url.clone())
                         .json(&posts)
-                        .send()
-                        .and_then(|resp| futures::future::ready(resp.error_for_status()))
-                })
-                .and_then(|_| {
-                    self
-                        .client
-                        .post(self.commit_url.clone())
                         .send()
                         .and_then(|resp| futures::future::ready(resp.error_for_status()))
                 })
@@ -168,7 +165,8 @@ impl SearchInner {
             self.metrics.incr_posts(rows as u64);
             self.metrics.incr_query_time(start.elapsed());
             self.notify_post(rows);
-
+            drop(t);
+            self.dirty.store(true, Ordering::Relaxed);
             return Ok(());
         }
         return err.unwrap();

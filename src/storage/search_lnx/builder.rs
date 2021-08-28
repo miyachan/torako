@@ -1,7 +1,8 @@
 use std::sync::{
-    atomic::{AtomicBool, AtomicUsize},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
 };
+use std::time::Duration;
 
 use futures::prelude::*;
 use futures::task::AtomicWaker;
@@ -16,6 +17,7 @@ pub struct SearchBuilder {
     fail_on_save_error: bool,
     retries_on_save_error: usize,
     authentication_key: String,
+    commit_sync_interval: Duration,
 }
 
 impl Default for SearchBuilder {
@@ -27,6 +29,7 @@ impl Default for SearchBuilder {
             fail_on_save_error: true,
             retries_on_save_error: 0,
             authentication_key: Default::default(),
+            commit_sync_interval: Duration::from_secs(5),
         }
     }
 }
@@ -39,6 +42,11 @@ impl SearchBuilder {
 
     pub fn with_index<T: AsRef<str>>(mut self, index: T) -> Self {
         self.index = String::from(index.as_ref());
+        self
+    }
+
+    pub fn commit_sync_interval(mut self, interval: Duration) -> Self {
+        self.commit_sync_interval = interval;
         self
     }
 
@@ -94,11 +102,14 @@ impl SearchBuilder {
         commit_url.set_path(&format!("/indexes/{}/commit", self.index));
 
         let (process_tx, process_rx) = tokio::sync::mpsc::unbounded_channel();
+        let commit_lock = Arc::new(tokio::sync::RwLock::new(()));
+        let dirty = Arc::new(AtomicBool::new(false));
+        let dirty_weak = Arc::downgrade(&dirty);
+        let commit_sync_interval = self.commit_sync_interval;
 
         let search = SearchInner {
-            client,
+            client: client.clone(),
             upload_url,
-            commit_url,
             max_inflight_posts: self.inflight_posts,
             fail_on_save_error: self.fail_on_save_error,
             retries_on_save_error: self.retries_on_save_error,
@@ -110,6 +121,8 @@ impl SearchBuilder {
             close_waker: Arc::new(AtomicWaker::new()),
             metrics: Arc::new(super::SearchMetrics::default()),
             process_tx,
+            commit_lock: commit_lock.clone(),
+            dirty,
         };
 
         let search = Arc::new(search);
@@ -126,6 +139,29 @@ impl SearchBuilder {
                 .buffer_unordered(usize::MAX)
                 .for_each(|_| future::ready(())),
         );
+        tokio::spawn(async move {
+            loop {
+                tokio::time::delay_for(commit_sync_interval).await;
+                if let Some(dirty) = dirty_weak.upgrade() {
+                    if dirty.load(Ordering::Relaxed) {
+                        let t = commit_lock.write().await;
+                        let r = client
+                            .post(commit_url.clone())
+                            .send()
+                            .and_then(|resp| futures::future::ready(resp.error_for_status()))
+                            .await;
+                        drop(t);
+                        if let Err(err) = r {
+                            log::warn!("Failed to commit lnx search index: {}", err);
+                        } else {
+                            dirty.store(false, Ordering::Relaxed)
+                        }
+                    }
+                } else {
+                    break;
+                }
+            }
+        });
 
         Ok(Search { inner: search })
     }
@@ -147,6 +183,9 @@ impl From<&crate::config::AsagiLnxSearch> for SearchBuilder {
         }
         if let Some(authentication_key) = config.authentication_key.as_ref() {
             builder = builder.authentication_key(authentication_key);
+        }
+        if let Some(commit_sync_interval) = config.commit_sync_interval.as_ref() {
+            builder = builder.commit_sync_interval(*commit_sync_interval);
         }
 
         builder

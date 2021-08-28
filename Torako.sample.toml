@@ -320,6 +320,13 @@ index = "posts"
 ## Authentication Key
 # authentication_key = ""
 
+## Commit Sync Interval
+## Commit posts to the index in this interval. Posts must be commited to show up
+## in searches
+## Default 5s
+#commit_sync_interval = "5s"
+
+
 # ---
 
 ## You can set custom storage backends for specific
