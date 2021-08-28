@@ -154,8 +154,9 @@ impl SearchInner {
                 })
                 .await;
 
-            if let Err(r) = r {
-                err = Some(Err(Error::DB(r)));
+            if let Err(e) = r {
+                log::warn!("Failed to insert data into lnx: {}", e);
+                err = Some(Err(Error::DB(e)));
                 if let Some(b) = backoff.next_backoff() {
                     tokio::time::delay_for(b).await;
                 }
