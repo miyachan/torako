@@ -12,6 +12,7 @@ jemalloc = ["jemallocator"]
 trust-dns = ["reqwest/trust-dns"]
 io-uring = ["rio"]
 pgs-reindex = ["sqlx", "num_cpus", "indicatif"]
+lnx-reindex = ["sqlx", "num_cpus", "indicatif"]
 
 [dependencies]
 clap = "2"

@@ -329,6 +329,8 @@ fn run<'a>(matches: ArgMatches<'a>) -> i32 {
     match matches.subcommand() {
         #[cfg(feature = "pgs-reindex")]
         ("pgs-reindex", Some(sub)) => return util::pgs::reindex(sub),
+        #[cfg(feature = "lnx-reindex")]
+        ("lnx-reindex", Some(sub)) => return util::lnx::reindex(sub),
         ("boo", Some(sub)) => return util::boo(sub),
         _ => (),
     };

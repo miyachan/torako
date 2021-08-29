@@ -80,15 +80,15 @@ jobs:
         if: matrix.build == 'linux'
         run: |
           rustup target add ${{ env.LINUX_TARGET }}
-          cargo build --release --features pgs-reindex --target ${{ env.LINUX_TARGET }}
+          cargo build --release --features pgs-reindex,lnx-reindex --target ${{ env.LINUX_TARGET }}
 
       - name: Build (MacOS)
         if: matrix.build == 'macos'
-        run: cargo build --release --features pgs-reindex
+        run: cargo build --release --features pgs-reindex,lnx-reindex
 
       - name: Build (Windows)
         if: matrix.build == 'windows'
-        run: cargo build --release --features pgs-reindex
+        run: cargo build --release --features pgs-reindex,lnx-reindex
 
       - name: Create artifact directory
         run: |
