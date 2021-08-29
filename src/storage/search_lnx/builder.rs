@@ -1,7 +1,7 @@
-use std::sync::{
+use std::{num::NonZeroUsize, sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
-};
+}};
 use std::time::Duration;
 
 use futures::prelude::*;
@@ -18,6 +18,7 @@ pub struct SearchBuilder {
     retries_on_save_error: usize,
     authentication_key: String,
     commit_sync_interval: Duration,
+    concurrent_requests: usize,
 }
 
 impl Default for SearchBuilder {
@@ -26,6 +27,7 @@ impl Default for SearchBuilder {
             db_url: None,
             index: Default::default(),
             inflight_posts: usize::MAX,
+            concurrent_requests: usize::MAX,
             fail_on_save_error: true,
             retries_on_save_error: 0,
             authentication_key: Default::default(),
@@ -47,6 +49,11 @@ impl SearchBuilder {
 
     pub fn commit_sync_interval(mut self, interval: Duration) -> Self {
         self.commit_sync_interval = interval;
+        self
+    }
+
+    pub fn concurrent_requests(mut self, requests: NonZeroUsize) -> Self {
+        self.concurrent_requests = requests.get();
         self
     }
 
@@ -113,6 +120,7 @@ impl SearchBuilder {
             max_inflight_posts: self.inflight_posts,
             fail_on_save_error: self.fail_on_save_error,
             retries_on_save_error: self.retries_on_save_error,
+            requests: tokio::sync::Semaphore::new(self.concurrent_requests),
 
             failed: AtomicBool::new(false),
             inflight_posts: AtomicUsize::new(0),
@@ -189,6 +197,9 @@ impl From<&crate::config::AsagiLnxSearch> for SearchBuilder {
         }
         if let Some(commit_sync_interval) = config.commit_sync_interval.as_ref() {
             builder = builder.commit_sync_interval(*commit_sync_interval);
+        }
+        if let Some(concurrent_requests) = config.concurrent_requests.as_ref() {
+            builder = builder.concurrent_requests(*concurrent_requests);
         }
 
         builder

@@ -12,7 +12,7 @@ use futures::task::AtomicWaker;
 use log::{debug, error, warn};
 use serde::Serialize;
 use thiserror::Error;
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, Semaphore};
 
 mod builder;
 mod post;
@@ -47,6 +47,7 @@ struct SearchInner {
     flush_waker: Arc<AtomicWaker>,
     close_waker: Arc<AtomicWaker>,
     metrics: Arc<SearchMetrics>,
+    requests: Semaphore,
     process_tx: tokio::sync::mpsc::UnboundedSender<Option<Vec<imageboard::Post>>>,
 }
 
@@ -140,6 +141,7 @@ impl SearchInner {
         let start = Instant::now();
         let rows = posts.len();
         for _ in 0..=self.retries_on_save_error {
+            let permit = self.requests.acquire().await;
             let t = self.commit_lock.read().await;
             let r = self
                 .client
@@ -155,7 +157,7 @@ impl SearchInner {
                         .and_then(|resp| futures::future::ready(resp.error_for_status()))
                 })
                 .await;
-
+            drop(permit);
             drop(t);
             if let Err(e) = r {
                 log::warn!("Failed to insert data into lnx: {}", e);

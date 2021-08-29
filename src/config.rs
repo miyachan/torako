@@ -196,6 +196,8 @@ pub struct AsagiLnxSearch {
     #[serde(default)]
     pub inflight_posts: Option<NonZeroUsize>,
     #[serde(default)]
+    pub concurrent_requests: Option<NonZeroUsize>,
+    #[serde(default)]
     pub fail_on_save_error: Option<bool>,
     #[serde(default)]
     pub retries_on_save_error: Option<usize>,

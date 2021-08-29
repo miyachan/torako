@@ -313,6 +313,11 @@ index = "posts"
 ## Default: unlimited
 #inflight_posts = 65536
 
+## Maximum Concurrent Requests. This will throttle requests if there are too many
+## concurrent requests.
+## Default: unlimited
+#concurrent_requests = 65536
+
 ## See the option description under backend.asagi
 ## Default 0
 #retries_on_save_error = 0
