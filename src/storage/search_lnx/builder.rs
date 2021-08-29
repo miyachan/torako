@@ -144,6 +144,8 @@ impl SearchBuilder {
                 tokio::time::delay_for(commit_sync_interval).await;
                 if let Some(dirty) = dirty_weak.upgrade() {
                     if dirty.load(Ordering::Relaxed) {
+                        let started = std::time::Instant::now();
+                        log::trace!("[lnx] Starting commit");
                         let t = commit_lock.write().await;
                         let r = client
                             .post(commit_url.clone())
@@ -154,6 +156,7 @@ impl SearchBuilder {
                         if let Err(err) = r {
                             log::warn!("Failed to commit lnx search index: {}", err);
                         } else {
+                            log::trace!("[lnx] Commit completed, took {}ms", started.elapsed().as_secs_f32() / 1000.);
                             dirty.store(false, Ordering::Relaxed)
                         }
                     }

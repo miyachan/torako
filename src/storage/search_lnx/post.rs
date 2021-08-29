@@ -1,4 +1,13 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use serde::{Serialize, Serializer};
+
+fn as_u32_be(array: &[u8; 4]) -> u32 {
+    ((array[0] as u32) << 24) +
+    ((array[1] as u32) << 16) +
+    ((array[2] as u32) <<  8) +
+    ((array[3] as u32) <<  0)
+}
 
 fn field_ser<T: Serialize, S: Serializer>(x: T, s: S) -> Result<S::Ok, S::Error>
 where
@@ -53,10 +62,25 @@ pub struct Post<'a> {
     op: u64,
     #[serde(skip_serializing_if = "Option::is_none", serialize_with = "field_ser")]
     capcode: Option<u64>,
+    #[serde(serialize_with = "field_ser")]
+    version: u64,
+    #[serde(serialize_with = "field_ser")]
+    pub tuid: u64,
 }
 
 impl<'a> From<&'a crate::imageboard::Post> for Post<'a> {
     fn from(post: &'a crate::imageboard::Post) -> Self {
+        let upper = {
+            let bytes = post.board.as_bytes();
+            let bytes = [bytes.get(0).copied().unwrap_or(0), bytes.get(1).copied().unwrap_or(0), bytes.get(2).copied().unwrap_or(0), bytes.get(3).copied().unwrap_or(0)];
+            as_u32_be(&bytes)
+        };
+        let lower = post.no as u32;
+        let tuid = (upper as u64) << 32 | (lower as u64);
+        let version = match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Ok(n) => n.as_millis() as u64,
+            Err(_) => panic!("SystemTime before UNIX EPOCH!"),
+        };
         Post {
             board: post.board,
             thread_no: post.thread_no(),
@@ -80,6 +104,8 @@ impl<'a> From<&'a crate::imageboard::Post> for Post<'a> {
             spoiler: if post.spoiler { 1 } else { 0 },
             op: if post.is_op() { 1 } else { 0 },
             capcode: post.short_capcode().chars().next().map(|c| c as u64),
+            tuid,
+            version,
         }
     }
 }
@@ -88,26 +114,21 @@ impl<'a> From<&'a crate::imageboard::Post> for Post<'a> {
 pub struct DeleteField<T> {
     #[serde(rename = "type")]
     t: &'static str,
-    value: [T; 1],
+    value: Vec<T>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct DeletePost {
-    board: DeleteField<&'static str>,
-    post_no: DeleteField<u64>,
+    tuid: DeleteField<u64>,
 }
 
-impl From<&crate::imageboard::Post> for DeletePost {
-    fn from(post: &crate::imageboard::Post) -> Self {
+impl DeletePost {
+    pub fn new(ids: Vec<u64>) -> Self {
         DeletePost {
-            board: DeleteField {
-                t: "text",
-                value: [post.board],
-            },
-            post_no: DeleteField {
+            tuid: DeleteField {
                 t: "u64",
-                value: [post.no],
-            },
+                value: ids,
+            }
         }
     }
 }

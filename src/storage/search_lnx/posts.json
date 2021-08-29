@@ -127,6 +127,18 @@
             "stored": false,
             "indexed": true,
             "fast": "single"
+        },
+        "tuid": {
+            "type": "u64",
+            "stored": false,
+            "indexed": true,
+            "fast": "single"
+        },
+        "version": {
+            "type": "u64",
+            "stored": false,
+            "indexed": true,
+            "fast": "single"
         }
     },
     "boost_fields": {}

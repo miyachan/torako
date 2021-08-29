@@ -127,11 +127,11 @@ impl Search {
 
 impl SearchInner {
     async fn save_posts(&self, item: Vec<imageboard::Post>) -> Result<(), Error> {
-        let delete_posts = item
-            .iter()
-            .map(|p| p.into())
-            .collect::<Vec<post::DeletePost>>();
         let posts = item.iter().map(|p| p.into()).collect::<Vec<post::Post>>();
+        let delete_posts = {
+            let field = posts.iter().map(|x| x.tuid).collect::<Vec<_>>();
+            post::DeletePost::new(field)
+        };
         let mut err = None;
         let mut backoff = backoff::ExponentialBackoff::default();
         backoff.max_elapsed_time = None;
@@ -154,6 +154,7 @@ impl SearchInner {
                 })
                 .await;
 
+            drop(t);
             if let Err(e) = r {
                 log::warn!("Failed to insert data into lnx: {}", e);
                 err = Some(Err(Error::DB(e)));
@@ -166,7 +167,6 @@ impl SearchInner {
             self.metrics.incr_posts(rows as u64);
             self.metrics.incr_query_time(start.elapsed());
             self.notify_post(rows);
-            drop(t);
             self.dirty.store(true, Ordering::Relaxed);
             return Ok(());
         }
