@@ -469,7 +469,7 @@ fn main() {
                         Arg::with_name("commit-interval")
                             .long("commit-interval")
                             .value_name("INTERVAL")
-                            .default_value(0)
+                            .default_value("0")
                             .takes_value(true),
                     )
                     .arg(Arg::with_name("boards").multiple(true).required(true)),
