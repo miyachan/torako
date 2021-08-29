@@ -352,7 +352,7 @@ pub fn reindex<'a>(matches: &ArgMatches<'a>) -> i32 {
             return 1;
         }
     };
-    let commit_interval: usize = match matches.value_of("commit_interval").unwrap().parse() {
+    let commit_interval: usize = match matches.value_of("commit-interval").unwrap().parse() {
         Ok(c) => c,
         Err(err) => {
             error!("Failed to parse commiut url uri: {}", err);

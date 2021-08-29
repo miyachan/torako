@@ -424,6 +424,64 @@ fn main() {
         }
     };
 
+    let lnx_reindex: Option<App<'_, '_>> = {
+        #[cfg(feature = "lnx-reindex")]
+        {
+            let num_cpus: &'static str = Box::leak(num_cpus::get().to_string().into_boxed_str());
+            Some(
+                SubCommand::with_name("lnx-reindex")
+                    .about("Reindex a lnx search database from MySQL Asagi")
+                    .arg(
+                        Arg::with_name("lnx")
+                            .long("lnx")
+                            .value_name("LNX URL")
+                            .takes_value(true)
+                            .required(true),
+                    )
+                    .arg(
+                        Arg::with_name("index")
+                            .long("index")
+                            .value_name("INDEX")
+                            .takes_value(true)
+                            .required(true),
+                    )
+                    .arg(
+                        Arg::with_name("authentication-key")
+                            .long("authentication-key")
+                            .value_name("KEY")
+                            .takes_value(true),
+                    )
+                    .arg(
+                        Arg::with_name("mysql")
+                            .long("mysql")
+                            .value_name("MYSQL URL")
+                            .takes_value(true)
+                            .required(true),
+                    )
+                    .arg(
+                        Arg::with_name("write-streams")
+                            .long("write-streams")
+                            .value_name("COUNT")
+                            .default_value(num_cpus)
+                            .takes_value(true),
+                    )
+                    .arg(
+                        Arg::with_name("commit-interval")
+                            .long("commit-interval")
+                            .value_name("INTERVAL")
+                            .default_value(0)
+                            .takes_value(true),
+                    )
+                    .arg(Arg::with_name("boards").multiple(true).required(true)),
+            )
+        }
+
+        #[cfg(not(feature = "lnx-reindex"))]
+        {
+            None
+        }
+    };
+
     let matches = App::new("Torako")
         .author("github.com/miyachan")
         .about("Torako: Imageboard archiver backend.")
@@ -440,6 +498,7 @@ fn main() {
         )
         .subcommand(SubCommand::with_name("boo").setting(AppSettings::Hidden))
         .subcommands(pgs_reindex.into_iter())
+        .subcommands(lnx_reindex.into_iter())
         .get_matches();
 
     match run(matches) {
