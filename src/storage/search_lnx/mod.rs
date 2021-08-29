@@ -55,6 +55,7 @@ pub struct Metrics {
     pub posts: u64,
     pub avg_insert_time_ms: f64,
     pub save_errors: u64,
+    pub inflight: u64,
 }
 
 #[derive(Default, Debug)]
@@ -99,6 +100,7 @@ impl super::MetricsProvider for SearchMetricsProvider {
         let tt = self.inner.metrics.query_time_ns.load(Ordering::Acquire) as f64;
         let m = Metrics {
             posts: self.inner.metrics.posts.load(Ordering::Acquire),
+            inflight: self.inner.inflight_posts.load(Ordering::Acquire) as _,
             avg_insert_time_ms: queries / tt * 1_000_000.,
             save_errors: self.inner.metrics.save_errors.load(Ordering::Acquire),
         };
