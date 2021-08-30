@@ -205,6 +205,8 @@ pub struct AsagiLnxSearch {
     pub authentication_key: Option<String>,
     #[serde(with = "humantime_serde")]
     pub commit_sync_interval: Option<Duration>,
+    #[serde(with = "humantime_serde")]
+    pub request_timeout: Option<Duration>,
 }
 
 #[derive(Debug, Deserialize, Clone)]

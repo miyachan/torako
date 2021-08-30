@@ -19,6 +19,7 @@ pub struct SearchBuilder {
     authentication_key: String,
     commit_sync_interval: Duration,
     concurrent_requests: usize,
+    request_timeout: Duration,
 }
 
 impl Default for SearchBuilder {
@@ -32,6 +33,7 @@ impl Default for SearchBuilder {
             retries_on_save_error: 0,
             authentication_key: Default::default(),
             commit_sync_interval: Duration::from_secs(5),
+            request_timeout: Duration::from_secs(120),
         }
     }
 }
@@ -72,6 +74,11 @@ impl SearchBuilder {
         self
     }
 
+    pub fn request_timeout(mut self, timeout: Duration) -> Self {
+        self.request_timeout = timeout;
+        self
+    }
+
     pub fn retries_on_save_error(mut self, retries: usize) -> Self {
         self.retries_on_save_error = retries;
         self
@@ -95,6 +102,7 @@ impl SearchBuilder {
         }
         let client = reqwest::Client::builder()
             .default_headers(headers)
+            .timeout(self.request_timeout)
             .build()
             .unwrap();
 
@@ -200,6 +208,9 @@ impl From<&crate::config::AsagiLnxSearch> for SearchBuilder {
         }
         if let Some(concurrent_requests) = config.concurrent_requests.as_ref() {
             builder = builder.concurrent_requests(*concurrent_requests);
+        }
+        if let Some(request_timeout) = config.request_timeout.as_ref() {
+            builder = builder.request_timeout(*request_timeout);
         }
 
         builder
