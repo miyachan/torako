@@ -67,14 +67,15 @@ pub struct Post<'a> {
 }
 
 #[derive(Debug, Serialize)]
-pub struct DeletePost {
-    tuid: Vec<u64>,
+pub struct DeletePostDoc {
+    tuid: u64
 }
+
+#[derive(Debug, Serialize)]
+pub struct DeletePost(Vec<DeletePostDoc>);
 
 impl DeletePost {
     pub fn new(ids: Vec<u64>) -> Self {
-        DeletePost {
-            tuid: ids
-        }
+       Self(ids.into_iter().map(|id| DeletePostDoc{ tuid: id }).collect())
     }
 }
