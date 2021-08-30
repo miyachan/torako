@@ -174,6 +174,7 @@ impl SearchInner {
             self.dirty.store(true, Ordering::Relaxed);
             return Ok(());
         }
+        self.notify_post(rows);
         return err.unwrap();
     }
 
