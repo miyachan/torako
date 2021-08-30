@@ -203,9 +203,9 @@ pub struct AsagiLnxSearch {
     pub retries_on_save_error: Option<usize>,
     #[serde(default)]
     pub authentication_key: Option<String>,
-    #[serde(with = "humantime_serde")]
+    #[serde(with = "humantime_serde", default)]
     pub commit_sync_interval: Option<Duration>,
-    #[serde(with = "humantime_serde")]
+    #[serde(with = "humantime_serde", default)]
     pub request_timeout: Option<Duration>,
 }
 
