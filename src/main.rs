@@ -468,8 +468,15 @@ fn main() {
                     .arg(
                         Arg::with_name("commit-interval")
                             .long("commit-interval")
-                            .value_name("INTERVAL")
+                            .value_name("SECONDS")
                             .default_value("0")
+                            .takes_value(true),
+                    )
+                    .arg(
+                        Arg::with_name("request-timeout")
+                            .long("request-timeout")
+                            .value_name("SECONDS")
+                            .default_value("600")
                             .takes_value(true),
                     )
                     .arg(Arg::with_name("boards").multiple(true).required(true)),

@@ -143,6 +143,7 @@ impl LnxReIndex {
         upload_url: url::Url,
         commit_url: url::Url,
         authentication_key: V,
+        request_timeout: Option<std::time::Duration>,
         source_url: url::Url,
         tables: T,
         write_streams: usize,
@@ -161,6 +162,7 @@ impl LnxReIndex {
         }
         let client = reqwest::Client::builder()
             .default_headers(headers)
+            .timeout(request_timeout.unwrap_or(std::time::Duration::from_secs(u64::MAX)))
             .build()
             .unwrap();
 
@@ -363,6 +365,17 @@ pub fn reindex<'a>(matches: &ArgMatches<'a>) -> i32 {
         0 => None,
         c => Some(std::time::Duration::from_secs(c as _ ))
     };
+    let request_timeout: usize = match matches.value_of("request-timeout").unwrap().parse() {
+        Ok(c) => c,
+        Err(err) => {
+            error!("Failed to parse commiut url uri: {}", err);
+            return 1;
+        }
+    };
+    let request_timeout = match request_timeout {
+        0 => None,
+        c => Some(std::time::Duration::from_secs(c as _ ))
+    };
 
     let write_streams: usize = match matches.value_of("write-streams").unwrap().parse() {
         Ok(0) => {
@@ -398,7 +411,7 @@ pub fn reindex<'a>(matches: &ArgMatches<'a>) -> i32 {
     let mut commit_url = lnx_url.clone();
     commit_url.set_path(&format!("/indexes/{}/commit", &lnx_index));
 
-    let r = LnxReIndex::new(upload_url, commit_url, lnx_key, mysql_url, boards, write_streams);
+    let r = LnxReIndex::new(upload_url, commit_url, lnx_key, request_timeout, mysql_url, boards, write_streams);
     let r = runtime.block_on(r.and_then(|r| r.build(commit_interval)));
 
     match r {
