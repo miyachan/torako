@@ -67,24 +67,14 @@ pub struct Post<'a> {
 }
 
 #[derive(Debug, Serialize)]
-pub struct DeleteField<T> {
-    #[serde(rename = "type")]
-    t: &'static str,
-    value: Vec<T>,
-}
-
-#[derive(Debug, Serialize)]
 pub struct DeletePost {
-    tuid: DeleteField<u64>,
+    tuid: Vec<u64>,
 }
 
 impl DeletePost {
     pub fn new(ids: Vec<u64>) -> Self {
         DeletePost {
-            tuid: DeleteField {
-                t: "u64",
-                value: ids,
-            }
+            tuid: ids
         }
     }
 }
