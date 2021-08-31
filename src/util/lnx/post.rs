@@ -46,6 +46,8 @@ pub struct Post<'a> {
     pub image_height: u64,
     #[serde(serialize_with = "field_ser")]
     pub ts: u64,
+    #[serde(serialize_with = "field_ser")]
+    pub tsr: u64,
     #[serde(skip_serializing_if = "Option::is_none", serialize_with = "field_ser")]
     pub comment: Option<&'a str>,
     #[serde(serialize_with = "field_ser")]

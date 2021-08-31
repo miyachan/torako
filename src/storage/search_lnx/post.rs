@@ -48,6 +48,8 @@ pub struct Post<'a> {
     image_height: u64,
     #[serde(serialize_with = "field_ser")]
     ts: u64,
+    #[serde(serialize_with = "field_ser")]
+    tsr: u64,
     #[serde(skip_serializing_if = "Option::is_none", serialize_with = "field_ser")]
     comment: Option<String>,
     #[serde(serialize_with = "field_ser")]
@@ -97,6 +99,7 @@ impl<'a> From<&'a crate::imageboard::Post> for Post<'a> {
             image_width: post.w as _,
             image_height: post.h as _,
             ts: post.time as _,
+            tsr: u64::MAX - (post.time as u64),
             comment: post.comment(),
             deleted: if post.deleted { 1 } else { 0 },
             ghost: 0,

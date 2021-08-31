@@ -79,6 +79,7 @@ impl<'a> Into<super::post::Post<'a>> for &'a Post {
             image_width: self.media_w.unwrap_or(0) as _,
             image_height: self.media_h.unwrap_or(0) as  _,
             ts: self.timestamp as _,
+            tsr: u64::MAX - (self.timestamp as u64),
             comment: self.comment.as_ref().map(|x| &**x),
             deleted: if self.deleted { 1 } else { 0 },
             ghost: 0,

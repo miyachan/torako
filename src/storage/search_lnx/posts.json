@@ -1,11 +1,11 @@
 {
-    "name": "%%NAME%%",
+    "name": "posts",
 
     "writer_buffer": 144000000,
-    "writer_threads": 12,
-    "reader_threads": 12,
+    "writer_threads": 6,
+    "reader_threads": 6,
 
-    "max_concurrency": 24,
+    "max_concurrency": 12,
     "search_fields": [
         "comment"
     ],
@@ -83,6 +83,12 @@
             "fast": "single"
         },
         "ts": {
+            "type": "date",
+            "stored": false,
+            "indexed": true,
+            "fast": "single"
+        },
+        "tsr": {
             "type": "u64",
             "stored": false,
             "indexed": true,
