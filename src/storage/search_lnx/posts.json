@@ -1,5 +1,5 @@
 {
-    "name": "posts",
+    "name": "%%NAME%%",
 
     "writer_buffer": 144000000,
     "writer_threads": 6,
@@ -83,7 +83,7 @@
             "fast": "single"
         },
         "ts": {
-            "type": "date",
+            "type": "u64",
             "stored": false,
             "indexed": true,
             "fast": "single"

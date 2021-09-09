@@ -130,7 +130,9 @@ impl Search {
 
 impl SearchInner {
     async fn save_posts(&self, item: Vec<imageboard::Post>) -> Result<(), Error> {
-        let posts = item.iter().map(|p| p.into()).collect::<Vec<post::Post>>();
+        let posts = item.iter()
+            .filter(|p| !p.deleted) // TODO
+            .map(|p| p.into()).collect::<Vec<post::Post>>();
         let delete_posts = {
             let field = posts.iter().map(|x| x.tuid).collect::<Vec<_>>();
             post::DeletePost::new(field)
